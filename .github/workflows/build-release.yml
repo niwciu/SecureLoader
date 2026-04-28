@@ -1,0 +1,287 @@
+name: Build & Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Release version (e.g. v1.2.3)'
+        required: true
+        default: 'v1.0.0'
+
+jobs:
+  resolve_version:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.set.outputs.tag }}
+      version: ${{ steps.set.outputs.version }}
+
+    steps:
+      - id: set
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            TAG_NAME="${{ github.event.inputs.release_tag }}"
+          else
+            TAG_NAME="${{ github.ref_name }}"
+          fi
+
+          # Ensure tag always has the v prefix
+          [[ "$TAG_NAME" == v* ]] || TAG_NAME="v${TAG_NAME}"
+
+          VERSION="${TAG_NAME#v}"
+
+          echo "Resolved TAG: $TAG_NAME"
+          echo "Resolved VERSION: $VERSION"
+
+          echo "tag=$TAG_NAME" >> $GITHUB_OUTPUT
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+
+  build_ubuntu:
+    needs: resolve_version
+    runs-on: ubuntu-latest
+    env:
+      APP_NAME: SecureLoader
+      VERSION: ${{ needs.resolve_version.outputs.version }}
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libegl-mesa0 \
+            libegl1 \
+            libgl1 \
+            libgl1-mesa-dri \
+            libxrender1 \
+            libxext6 \
+            libxrandr2 \
+            libxi6 \
+            libfontconfig1 \
+            libxcb-glx0 \
+            libxcb-render0 \
+            libxcb-shape0 \
+            libxcb-xfixes0 \
+            libxkbcommon0
+
+      - name: Build
+        run: |
+          python3 -m venv venv
+          source venv/bin/activate
+          pip install -e ".[gui]"
+          pip install pyinstaller
+          pyinstaller --onefile --windowed \
+            --name "$APP_NAME" \
+            --icon="src/secure_loader/gui/resources/icons/icon.png" \
+            --add-data "src/secure_loader/gui/resources:secure_loader/gui/resources" \
+            install_scripts/run_gui.py
+          chmod +x "dist/$APP_NAME"
+
+      - name: Package
+        run: |
+          mkdir -p release
+
+          tar -czf "release/${APP_NAME}-linux-binary.tar.gz" -C dist "$APP_NAME"
+
+          PKG_ROOT="pkg-root"
+          INSTALL_ROOT="/opt/${APP_NAME}"
+
+          mkdir -p "$PKG_ROOT/DEBIAN"
+          mkdir -p "$PKG_ROOT${INSTALL_ROOT}"
+          mkdir -p "$PKG_ROOT/usr/share/applications"
+          mkdir -p "$PKG_ROOT/usr/share/pixmaps"
+          mkdir -p "$PKG_ROOT/usr/local/bin"
+
+          cp "dist/$APP_NAME" "$PKG_ROOT${INSTALL_ROOT}/$APP_NAME"
+          cp "src/secure_loader/gui/resources/icons/icon.png" \
+             "$PKG_ROOT/usr/share/pixmaps/${APP_NAME}.png"
+
+          cat << DESKTOP | sed 's/^[[:space:]]*//' > "$PKG_ROOT/usr/share/applications/${APP_NAME}.desktop"
+          [Desktop Entry]
+          Type=Application
+          Name=${APP_NAME}
+          Exec=${INSTALL_ROOT}/${APP_NAME}
+          Icon=${APP_NAME}
+          Terminal=false
+          Categories=Utility;
+          DESKTOP
+
+          ln -s "${INSTALL_ROOT}/${APP_NAME}" "$PKG_ROOT/usr/local/bin/$APP_NAME"
+
+          cat << CONTROL | sed 's/^[[:space:]]*//' > "$PKG_ROOT/DEBIAN/control"
+          Package: secureloader
+          Version: ${VERSION}
+          Section: utils
+          Priority: optional
+          Architecture: amd64
+          Maintainer: niwciu <niwciu@gmail.com>
+          Description: SecureLoader — encrypted firmware upload tool for embedded devices
+          CONTROL
+
+          dpkg-deb --build "$PKG_ROOT" "release/${APP_NAME}-linux-installer.deb"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ubuntu-build
+          path: release/*
+
+
+  build_windows:
+    needs: resolve_version
+    runs-on: windows-latest
+    env:
+      APP_NAME: SecureLoader
+      VERSION: ${{ needs.resolve_version.outputs.version }}
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Build
+        run: |
+          python -m venv .venv
+          .venv\Scripts\pip install --upgrade pip
+          .venv\Scripts\pip install -e ".[gui]"
+          .venv\Scripts\pip install pyinstaller
+
+          .venv\Scripts\pyinstaller `
+            --onefile `
+            --noconsole `
+            --name "${env:APP_NAME}" `
+            --icon="src/secure_loader/gui/resources/icons/icon.ico" `
+            --add-data "src/secure_loader/gui/resources;secure_loader/gui/resources" `
+            install_scripts/run_gui.py
+
+      - name: Sign EXE
+        if: ${{ env.SIGN_CERT_B64 != '' }}
+        env:
+          SIGN_CERT_B64: ${{ secrets.SIGN_CERT_B64 }}
+          SIGN_CERT_PASSWORD: ${{ secrets.SIGN_CERT_PASSWORD }}
+        shell: pwsh
+        run: |
+          $bytes = [Convert]::FromBase64String($env:SIGN_CERT_B64)
+          $cert  = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new(
+                       $bytes, $env:SIGN_CERT_PASSWORD)
+          $exe   = "dist\${env:APP_NAME}.exe"
+          $r = Set-AuthenticodeSignature $exe -Certificate $cert `
+                 -TimestampServer 'http://timestamp.digicert.com' -ErrorAction SilentlyContinue
+          if (-not $r -or $r.Status -ne 'Valid') {
+              $r = Set-AuthenticodeSignature $exe -Certificate $cert
+          }
+          if ($r.Status -ne 'Valid') {
+              Write-Error "Signing failed: $($r.Status)"; exit 1
+          }
+          Write-Host "Signed OK: $exe"
+
+      - name: Package
+        run: |
+          mkdir release
+
+          Compress-Archive `
+            -Path "dist\${env:APP_NAME}.exe" `
+            -DestinationPath "release\${env:APP_NAME}-windows-binary.zip"
+
+          @"
+          [Setup]
+          AppId={{B3C4D5E6-F7A8-9012-BCDE-F01234567891}
+          AppName=${env:APP_NAME}
+          AppVersion=${env:VERSION}
+          DefaultDirName={autopf}\${env:APP_NAME}
+          DefaultGroupName=${env:APP_NAME}
+          OutputDir=release
+          OutputBaseFilename=${env:APP_NAME}-windows-setup
+          Compression=lzma
+          SolidCompression=yes
+
+          [Files]
+          Source: "dist\${env:APP_NAME}.exe"; DestDir: "{app}"; Flags: ignoreversion
+          Source: "src\secure_loader\gui\resources\icons\icon.ico"; DestDir: "{app}"; Flags: ignoreversion
+
+          [Icons]
+          Name: "{group}\${env:APP_NAME}"; Filename: "{app}\${env:APP_NAME}.exe"; IconFilename: "{app}\icon.ico"
+          Name: "{commondesktop}\${env:APP_NAME}"; Filename: "{app}\${env:APP_NAME}.exe"; IconFilename: "{app}\icon.ico"
+          "@ | Set-Content installer.iss
+
+          choco install innosetup --no-progress -y
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer.iss
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: windows-build
+          path: release\*
+
+
+  release:
+    needs: [resolve_version, build_ubuntu, build_windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Extract changelog
+        id: changelog
+        run: |
+          VERSION="${{ needs.resolve_version.outputs.version }}"
+
+          # CHANGELOG uses "## [VERSION]" format (Keep a Changelog convention)
+          if ! grep -q "## \[${VERSION}\]" CHANGELOG.md; then
+            echo "ERROR: version [${VERSION}] not found in CHANGELOG.md"
+            exit 1
+          fi
+
+          CONTENT=$(awk -v ver="$VERSION" '
+            BEGIN { found=0 }
+            $0 ~ "^## \\[" ver "\\]" {
+              found=1
+              next
+            }
+            found && $0 ~ "^## \\[[0-9]+\\.[0-9]+\\.[0-9]+\\]" {
+              exit
+            }
+            found { print }
+          ' CHANGELOG.md)
+
+          echo "changelog<<EOF" >> $GITHUB_OUTPUT
+          echo "$CONTENT" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: ubuntu-build
+          path: dist/linux/
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-build
+          path: dist/windows/
+
+      - name: Create release archives
+        run: |
+          mkdir final
+          tar -czf final/SecureLoader-linux.tar.gz -C dist/linux .
+          cd dist/windows && zip -r ../../final/SecureLoader-windows.zip . && cd -
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ needs.resolve_version.outputs.tag }}
+          name: ${{ needs.resolve_version.outputs.tag }}
+          body: ${{ steps.changelog.outputs.changelog }}
+          files: |
+            final/SecureLoader-linux.tar.gz
+            final/SecureLoader-windows.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

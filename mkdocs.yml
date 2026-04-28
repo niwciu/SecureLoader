@@ -1,0 +1,72 @@
+site_name: SecureLoader
+site_description: Encrypted firmware upload tool for embedded devices over serial
+site_url: https://niwciu.github.io/SecureLoader/
+
+repo_url: https://github.com/niwciu/SecureLoader
+repo_name: niwciu/SecureLoader
+
+docs_dir: docs
+use_directory_urls: true
+
+theme:
+  name: material
+  language: en
+  logo: SecureLoader.png
+  favicon: SecureLoader.png
+
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - content.code.copy
+    - content.code.annotate
+
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+
+    - scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+
+markdown_extensions:
+  - admonition
+  - tables
+  - toc:
+      permalink: true
+
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+
+  - pymdownx.highlight:
+      anchor_linenums: true
+
+  - pymdownx.inlinehilite
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.details
+  - attr_list
+
+plugins:
+  - search
+
+nav:
+  - Overview: index.md
+  - User Guide: USER_GUIDE.md
+  - Firmware Format: FIRMWARE_FORMAT.md
+  - Serial Protocol: PROTOCOL.md
+  - Architecture: ARCHITECTURE.md
+  - Contributing: CONTRIBUTING.md
+  - Troubleshooting: TROUBLESHOOTING.md
+  - Roadmap: GITHUB_SOURCE_MIGRATION.md

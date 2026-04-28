@@ -1,0 +1,103 @@
+[project.urls]
+Homepage = "https://github.com/niwciu/SecureLoader"
+Source = "https://github.com/niwciu/SecureLoader"
+"Bug Tracker" = "https://github.com/niwciu/SecureLoader/issues"
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "secureloader"
+version = "1.0.0"
+description = "Encrypted firmware upload tool for embedded devices over serial"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "niwciu" }]
+keywords = ["firmware", "update", "serial", "embedded", "bootloader"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Environment :: Console",
+    "Environment :: X11 Applications :: Qt",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: MacOS",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Embedded Systems",
+]
+
+dependencies = [
+    "pyserial>=3.5",
+    "requests>=2.31",
+    "click>=8.1",
+    "platformdirs>=4.0",
+]
+
+[project.optional-dependencies]
+gui = ["PySide6>=6.6"]
+dev = [
+    "pytest>=7.4",
+    "pytest-cov>=4.1",
+    "pytest-mock>=3.12",
+    "ruff>=0.1",
+    "mypy>=1.7",
+    "black>=24.0",
+    "flake8>=7.0",
+    "types-requests>=2.31",
+    "types-pyserial>=3.5",
+]
+build = ["pyinstaller>=6.0"]
+
+[project.scripts]
+secure-loader = "secure_loader.cli.main:cli"
+sld = "secure_loader.cli.main:cli"
+sloader = "secure_loader.cli.main:cli"
+
+[project.gui-scripts]
+secure-loader-gui = "secure_loader.gui.app:main"
+sld-gui = "secure_loader.gui.app:main"
+sloader-gui = "secure_loader.gui.app:main"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"secure_loader" = [
+    "gui/resources/icons/*",
+    "i18n/*.mo",
+    "i18n/*.po",
+    "gui/ui/*.ui",
+]
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "SIM", "RUF"]
+ignore = ["E501"]
+
+[tool.black]
+line-length = 100
+target-version = ["py310"]
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
