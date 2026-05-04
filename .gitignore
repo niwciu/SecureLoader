@@ -135,7 +135,7 @@ dmypy.json
 # Application specific
 logs/
 *.csv
-*.txt
+# *.txt
 *.tmp
 old_logs/
 test_output.csv
