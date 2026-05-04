@@ -44,6 +44,9 @@ flowchart LR
     class A,A2,C tool
     class B file
     class D,SB device
+
+    click SB "https://github.com/niwciu/SECURE_BOOTLOADER" "SecureBootloader repository"
+    click A2 "https://github.com/niwciu/EncryptBIN" "EncryptBIN repository"
 ```
 
 ---

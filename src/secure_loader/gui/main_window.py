@@ -357,14 +357,17 @@ class MainWindow(QMainWindow):
         name_lbl.setOpenExternalLinks(True)
         right.addWidget(name_lbl)
 
-        creator_url = "https://github.com/niwciu/EncryptBIN"
+        encrypt_url = "https://github.com/niwciu/EncryptBIN"
+        bootloader_url = "https://github.com/niwciu/SECURE_BOOTLOADER"
         desc_lbl = QLabel(
             f"Flashes encrypted <code>.bin</code> firmware to embedded devices "
             f"over a serial connection.<br><br>"
             f"Firmware files are created with "
-            f'<a href="{creator_url}"><b>EncryptBIN</b></a> — '
-            f"a companion tool that produces AES&#8209;128&nbsp;CBC encrypted binaries "
-            f"compatible with Tiny&#8209;AES&#8209;C bootloaders."
+            f'<a href="{encrypt_url}"><b>EncryptBIN</b></a> — '
+            f"a companion tool that produces AES&#8209;128&nbsp;CBC encrypted binaries. "
+            f"The target device must run "
+            f'<a href="{bootloader_url}"><b>SecureBootloader</b></a> — '
+            f"a compatible embedded bootloader that accepts this protocol."
         )
         desc_lbl.setWordWrap(True)
         desc_lbl.setOpenExternalLinks(True)
@@ -394,6 +397,8 @@ class MainWindow(QMainWindow):
         _row("Author", "niwciu", 1)
         _row("GitHub", "github.com/niwciu", 2, "https://github.com/niwciu")
         _row("Email", "niwciu@gmail.com", 3, "mailto:niwciu@gmail.com")
+        _row("Bootloader", "SECURE_BOOTLOADER", 4, "https://github.com/niwciu/SECURE_BOOTLOADER")
+        _row("Firmware tool", "EncryptBIN", 5, "https://github.com/niwciu/EncryptBIN")
 
         right.addLayout(meta_grid)
         right.addStretch()
