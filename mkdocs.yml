@@ -69,4 +69,5 @@ nav:
   - Architecture: ARCHITECTURE.md
   - Contributing: CONTRIBUTING.md
   - Troubleshooting: TROUBLESHOOTING.md
+  - Security: SECURITY.md
   - Roadmap: GITHUB_SOURCE_MIGRATION.md

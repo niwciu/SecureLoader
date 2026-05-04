@@ -338,6 +338,7 @@ Full documentation is hosted at:
 | [Architecture](https://niwciu.github.io/SecureLoader/ARCHITECTURE/)       | Layer design, module responsibilities, threading model      |
 | [Contributing](https://niwciu.github.io/SecureLoader/CONTRIBUTING/)       | Dev setup, testing, code style, adding sources / languages  |
 | [Troubleshooting](https://niwciu.github.io/SecureLoader/TROUBLESHOOTING/) | Common errors and fixes                                     |
+| [Security](https://niwciu.github.io/SecureLoader/SECURITY/)               | Vulnerability reporting, scope, threat model                |
 
 To preview docs locally:
 
@@ -345,6 +346,11 @@ To preview docs locally:
 pip install mkdocs mkdocs-material pymdown-extensions
 mkdocs serve          # http://127.0.0.1:8000
 ```
+
+## 🔒 Security
+
+To report a vulnerability, see [SECURITY.md](SECURITY.md).
+Please **do not** open a public GitHub issue for security problems before contacting privately first.
 
 ## 📄 License
 
