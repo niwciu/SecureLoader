@@ -94,9 +94,12 @@ def _load_config_locked(path: Path | None) -> AppConfig:
         last_firmware_paths=[recent[key] for key in sorted(recent) if key.startswith("firmware_")],
     )
     if _KEYRING_AVAILABLE and cfg.http_login:
-        stored = _keyring.get_password(_KEYRING_SERVICE, cfg.http_login)
-        if stored is not None:
-            cfg.http_password = stored
+        try:
+            stored = _keyring.get_password(_KEYRING_SERVICE, cfg.http_login)
+            if stored is not None:
+                cfg.http_password = stored
+        except Exception:
+            log.debug("keyring read failed — using password from config file")
     return cfg
 
 

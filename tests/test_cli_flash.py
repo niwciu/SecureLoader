@@ -131,5 +131,5 @@ class TestFlashCommandIntegration:
             )
 
         assert result.exit_code != 0
-        combined = (result.output + str(result.exception)).lower()
-        assert "mismatch" in combined or "does not match" in combined
+        # reason.describe() is always English regardless of UI language
+        assert "bootloader protocol version" in result.output.lower()

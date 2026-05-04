@@ -9,7 +9,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "secureloader"
-version = "1.0.0"
+version = "1.1.0"
 description = "Encrypted firmware upload tool for embedded devices over serial"
 readme = "README.md"
 requires-python = ">=3.10"
