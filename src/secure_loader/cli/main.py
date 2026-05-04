@@ -6,12 +6,19 @@ The CLI mirrors the GUI's feature set in a headless form::
     sld info --file firmware.bin
     sld info --port /dev/ttyUSB0
     sld fetch --license 42 --unique C0FE --output firmware.bin
-    sld flash --port /dev/ttyUSB0 --file firmware.bin
+    sld flash --port /dev/ttyUSB0 --file firmware.bin [--yes]
     sld config set http.login <value>
 
 All output is intentionally plain (no colour by default, no progress bars
 by default) to make it easy to embed in scripts. Pass ``--verbose`` to
 enable INFO/DEBUG logging and ``--progress`` to render tqdm-style bars.
+
+``flash`` prompts for confirmation before writing to the device; pass
+``--yes``/``-y`` to skip the prompt in non-interactive scripts.
+
+``config set`` validates ``ui.language`` (must be one of the supported codes
+or ``auto``) and ``http.base_url`` (must start with ``http://`` or
+``https://``).
 """
 
 from __future__ import annotations
@@ -26,6 +33,7 @@ from serial.tools import list_ports
 
 from .. import __app_name__, __version__
 from ..config import AppConfig, config_path, load_config, save_config
+from ..core.audit import log_flash
 from ..core.firmware import FirmwareHeader, load_firmware, parse_header
 from ..core.protocol import (
     DeviceInfo,
@@ -221,6 +229,13 @@ def _query_device(
     required=True,
 )
 @click.option("--base-url", default=None, help="Override configured base URL.")
+@click.option(
+    "--allow-insecure",
+    "allow_insecure",
+    is_flag=True,
+    default=False,
+    help="Allow plain HTTP and disabled TLS verification. Use only in controlled environments.",
+)
 @click.pass_context
 def fetch_cmd(
     ctx: click.Context,
@@ -229,11 +244,14 @@ def fetch_cmd(
     prev_version: str | None,
     out_path: Path,
     base_url: str | None,
+    allow_insecure: bool,
 ) -> None:
     config: AppConfig = ctx.obj["config"]
+    effective_url = base_url or config.http_base_url
     source = HttpFirmwareSource(
-        base_url=base_url or config.http_base_url,
+        base_url=effective_url,
         credentials=config.credentials(),
+        allow_insecure=allow_insecure,
     )
     identifier = FirmwareIdentifier(
         license_id=license_id,
@@ -294,6 +312,12 @@ def fetch_cmd(
     is_flag=True,
     help="Skip product ID / protocol version compatibility checks.",
 )
+@click.option(
+    "--yes",
+    "-y",
+    is_flag=True,
+    help="Skip the confirmation prompt before flashing.",
+)
 @click.pass_context
 def flash_cmd(
     ctx: click.Context,
@@ -304,6 +328,7 @@ def flash_cmd(
     parity: str,
     timeout: float,
     force: bool,
+    yes: bool,
 ) -> None:
     header, firmware = load_firmware(file_path)
     click.echo(_("Firmware header:"))
@@ -366,11 +391,18 @@ def flash_cmd(
                 )
             )
 
+        if not yes:
+            click.confirm(_("Proceed with firmware update?"), abort=True)
         click.echo(_("Starting transfer..."))
-        proto.start_download(firmware)
-        proto.wait_for_download(timeout=timeout)
+        try:
+            proto.start_download(firmware)
+            proto.wait_for_download(timeout=timeout)
+        except ProtocolError as exc:
+            log_flash(port, header.format_app_version(), f"error: {exc}")
+            raise
         click.echo()  # newline after progress
         click.echo(_("Update finished."))
+        log_flash(port, header.format_app_version(), "success")
     finally:
         proto.stop()
         proto.disconnect()
@@ -419,9 +451,33 @@ def config_set_cmd(ctx: click.Context, key: str, value: str) -> None:
     attr = mapping.get(key)
     if attr is None:
         raise click.UsageError(f"unknown key: {key}")
+    if key == "ui.language":
+        valid = ["auto", *available_languages()]
+        if value not in valid:
+            raise click.UsageError(
+                f"invalid language {value!r}; choose from: {', '.join(valid)}"
+            )
+    elif key == "http.base_url" and value and not value.startswith(("http://", "https://")):
+        raise click.UsageError("http.base_url must start with http:// or https://")
+    elif key == "http.password":
+        click.echo(
+            "Warning: password passed on the command line will appear in shell history. "
+            "Use 'sld config set-password' for a secure interactive prompt.",
+            err=True,
+        )
     setattr(cfg, attr, value)
     save_config(cfg)
     click.echo(f"{key} saved.")
+
+
+@config_group.command("set-password", help="Set http.password via a secure interactive prompt.")
+@click.pass_context
+def config_set_password_cmd(ctx: click.Context) -> None:
+    cfg: AppConfig = ctx.obj["config"]
+    password = click.prompt("HTTP password", hide_input=True, confirmation_prompt=True)
+    cfg.http_password = password
+    save_config(cfg)
+    click.echo("http.password saved.")
 
 
 def main() -> int:

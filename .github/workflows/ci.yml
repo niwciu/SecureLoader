@@ -63,9 +63,19 @@ jobs:
       run: |
         .venv/bin/black --check src tests
 
+    - name: Security scan with bandit
+      run: |
+        .venv/bin/pip install bandit[toml]
+        .venv/bin/bandit -r src/ -ll -x src/secure_loader/gui/resources
+
+    - name: Dependency vulnerability scan
+      run: |
+        .venv/bin/pip install pip-audit
+        .venv/bin/pip-audit --skip-editable --ignore-vuln CVE-2026-3219
+
     - name: Run tests
       run: |
-        .venv/bin/pytest --cov=src/secure_loader tests/
+        .venv/bin/pytest --cov=src/secure_loader --cov-fail-under=70 tests/
       env:
         QT_QPA_PLATFORM: offscreen
 

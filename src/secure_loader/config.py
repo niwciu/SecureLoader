@@ -8,10 +8,6 @@ Uses :mod:`platformdirs` to resolve the correct per-user config location:
 
 The format is INI (:mod:`configparser`) so it is trivially editable by hand
 and does not require any additional dependencies.
-
-For backwards compatibility we also read legacy credentials from the
-``QSettings("microAQUA", "cridential")`` location when they exist and the
-new config does not (see :func:`_load_legacy_credentials`).
 """
 
 from __future__ import annotations
@@ -20,6 +16,7 @@ import configparser
 import contextlib
 import logging
 import os
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -29,9 +26,22 @@ from .core.sources.http import DEFAULT_BASE_URL, HttpCredentials
 
 log = logging.getLogger(__name__)
 
+try:
+    import keyring as _keyring
+
+    _KEYRING_SERVICE = "secureloader"
+    _KEYRING_AVAILABLE = True
+except ImportError:  # pragma: no cover
+    _keyring = None  # type: ignore[assignment]
+    _KEYRING_AVAILABLE = False
+
 APP_DIR_NAME: str = "secureloader"
 APP_AUTHOR: str = "niwciu"
 CONFIG_FILENAME: str = "config.ini"
+
+# Protects concurrent in-process load/save (e.g. GUI thread + CLI invocation
+# running in the same process, or multiple QThread workers calling save_config).
+_config_lock = threading.Lock()
 
 
 def config_dir() -> Path:
@@ -60,7 +70,12 @@ class AppConfig:
 
 
 def load_config(path: Path | None = None) -> AppConfig:
-    """Read the config file, filling in defaults and legacy values."""
+    """Read the config file, filling in defaults for any missing keys."""
+    with _config_lock:
+        return _load_config_locked(path)
+
+
+def _load_config_locked(path: Path | None) -> AppConfig:
     cfg_path = path or config_path()
     parser = configparser.ConfigParser()
     if cfg_path.exists():
@@ -70,7 +85,7 @@ def load_config(path: Path | None = None) -> AppConfig:
     ui = parser["ui"] if parser.has_section("ui") else {}
     recent = parser["recent"] if parser.has_section("recent") else {}
 
-    config = AppConfig(
+    cfg = AppConfig(
         http_base_url=http.get("base_url", DEFAULT_BASE_URL),
         http_login=http.get("login", ""),
         http_password=http.get("password", ""),
@@ -78,26 +93,42 @@ def load_config(path: Path | None = None) -> AppConfig:
         update_instruction_url=ui.get("instruction_url", ""),
         last_firmware_paths=[recent[key] for key in sorted(recent) if key.startswith("firmware_")],
     )
-
-    # One-time migration from the original QSettings location.
-    if not config.http_login and not config.http_password:
-        legacy = _load_legacy_credentials()
-        if legacy is not None:
-            config.http_login, config.http_password = legacy
-            log.info("imported legacy credentials from QSettings")
-
-    return config
+    if _KEYRING_AVAILABLE and cfg.http_login:
+        stored = _keyring.get_password(_KEYRING_SERVICE, cfg.http_login)
+        if stored is not None:
+            cfg.http_password = stored
+    return cfg
 
 
 def save_config(config: AppConfig, path: Path | None = None) -> None:
+    with _config_lock:
+        _save_config_locked(config, path)
+
+
+def _save_config_locked(config: AppConfig, path: Path | None) -> None:
     cfg_path = path or config_path()
     cfg_path.parent.mkdir(parents=True, exist_ok=True)
+
+    if _KEYRING_AVAILABLE and config.http_login:
+        try:
+            _keyring.set_password(_KEYRING_SERVICE, config.http_login, config.http_password)
+            ini_password = ""
+        except Exception:
+            log.warning("keyring write failed — storing HTTP password in plaintext")
+            ini_password = config.http_password
+    else:
+        if config.http_password:
+            log.warning(
+                "keyring not installed — storing HTTP password in plaintext. "
+                "Install the 'keyring' package for secure storage."
+            )
+        ini_password = config.http_password
 
     parser = configparser.ConfigParser()
     parser["http"] = {
         "base_url": config.http_base_url,
         "login": config.http_login,
-        "password": config.http_password,
+        "password": ini_password,
     }
     parser["ui"] = {
         "language": config.language,
@@ -115,22 +146,3 @@ def save_config(config: AppConfig, path: Path | None = None) -> None:
         os.chmod(cfg_path, 0o600)
 
 
-def _load_legacy_credentials() -> tuple[str, str] | None:
-    """Import credentials from the original QSettings("microAQUA","cridential") store.
-
-    Returns ``None`` when no legacy data is present or when PySide6 is not
-    installed (the GUI is an optional dependency).
-    """
-    try:
-        from PySide6.QtCore import QSettings
-    except ImportError:
-        return None
-
-    settings = QSettings("microAQUA", "cridential")
-    settings.beginGroup("login_and_password")
-    login = settings.value("login", "", type=str)
-    password = settings.value("password", "", type=str)
-    settings.endGroup()
-    if not login and not password:
-        return None
-    return (str(login), str(password))

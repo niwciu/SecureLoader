@@ -98,6 +98,16 @@ class DeviceInfo:
     product_id: int
     flash_page_size: int
 
+    @property
+    def license_id(self) -> str:
+        """Characters ``[4:6]`` of the 16-hex-digit product ID (matches ``FirmwareHeader.license_id``)."""
+        return f"{self.product_id:016X}"[4:6]
+
+    @property
+    def unique_id(self) -> str:
+        """Characters ``[12:16]`` of the 16-hex-digit product ID (matches ``FirmwareHeader.unique_id``)."""
+        return f"{self.product_id:016X}"[12:16]
+
     def format_bootloader_version(self) -> str:
         return f"0x{self.bootloader_version:08X}"
 
@@ -170,8 +180,10 @@ class Protocol:
         self._pages_total: int = 0
         self._pages_sent: int = 0
         self._stop = threading.Event()
+        self._connected_event = threading.Event()
         self._download_complete = threading.Event()
         self._download_error: str | None = None
+        self._download_lock = threading.Lock()
         self._dev_page_size: int = 0
         self._handshake_buf: bytearray = bytearray()
         self._handshake_tail: int = 0
@@ -183,7 +195,7 @@ class Protocol:
         return self._state
 
     def connect(self) -> None:
-        """Open the serial port. Does not yet poll the device."""
+        """Open the serial port and flush stale RX data. Does not yet poll the device."""
         if self._ser is not None:
             return
         try:
@@ -198,6 +210,7 @@ class Protocol:
             )
         except SerialException as e:
             raise ProtocolError(f"cannot open {self._port}: {e}") from e
+        self._ser.reset_input_buffer()
         self._set_state(State.CONNECTING)
 
     def disconnect(self) -> None:
@@ -258,8 +271,6 @@ class Protocol:
         :meth:`wait_for_download` or the higher-level
         :meth:`download_blocking`.
         """
-        if self._state != State.CONNECTED:
-            raise ProtocolError(f"can't start download from state {self._state.name}")
         wire_header = build_device_header(firmware)
         if len(wire_header) != DEVICE_HEADER_SIZE:
             raise ProtocolError(
@@ -274,13 +285,17 @@ class Protocol:
         #   [48:]    encrypted pages
         payload = firmware[HEADER_SIZE:]
         pages = split_pages(payload, page_size)
-        self._pending_payload = payload
-        self._pages_total = len(pages)
-        self._pages_sent = 0
-        self._download_complete.clear()
-        self._download_error = None
-
-        self._set_state(State.STARTING)
+        with self._download_lock:
+            if self._state != State.CONNECTED:
+                raise ProtocolError(f"can't start download from state {self._state.name}")
+            self._pending_payload = payload
+            self._pages_total = len(pages)
+            self._pages_sent = 0
+            self._download_complete.clear()
+            self._download_error = None
+            # Transition inside the lock so the driver thread cannot observe a
+            # window where payload is set but state is still CONNECTED.
+            self._set_state(State.STARTING)
         self._write_cmd(Command.START)
         self._write_raw(wire_header)
 
@@ -300,19 +315,23 @@ class Protocol:
         driver = threading.Thread(target=self.run, name="secureloader-protocol", daemon=True)
         driver.start()
         try:
-            # Wait until the device is CONNECTED (bootloader replied).
-            deadline = time.monotonic() + timeout
-            while self._state != State.CONNECTED:
-                if time.monotonic() >= deadline:
-                    raise ProtocolError("timed out waiting for device handshake")
+            # Wait until the device is CONNECTED via an Event — avoids the TOCTOU
+            # race that a busy-wait on _state would introduce.
+            handshake_timeout = min(timeout, 30.0)
+            if not self._connected_event.wait(timeout=handshake_timeout):
                 if not driver.is_alive():
                     raise ProtocolError("protocol loop exited unexpectedly")
-                time.sleep(0.05)
+                raise ProtocolError("timed out waiting for device handshake")
+            # start_download checks _state under its own lock; if the device
+            # timed out between our wait() returning and this call, it raises
+            # ProtocolError which propagates cleanly.
             self.start_download(firmware)
             self.wait_for_download(timeout=timeout)
         finally:
             self.stop()
             driver.join(timeout=2.0)
+            if driver.is_alive():
+                log.warning("protocol driver thread did not stop within timeout")
 
     # --------------------------------------------------------------- internals
 
@@ -320,6 +339,12 @@ class Protocol:
         if state == self._state:
             return
         self._state = state
+        if state == State.CONNECTED:
+            self._connected_event.set()
+        elif self._connected_event.is_set():
+            self._connected_event.clear()
+        if state == State.CONNECTING and (ser := self._ser) is not None:
+            ser.reset_input_buffer()
         if self._callbacks.on_state_changed:
             try:
                 self._callbacks.on_state_changed(state)
@@ -335,29 +360,32 @@ class Protocol:
                 log.exception("on_error callback raised")
 
     def _write_cmd(self, cmd: Command) -> bool:
-        if self._ser is None:
+        ser = self._ser
+        if ser is None:
             return False
         try:
-            self._ser.reset_input_buffer()
-            n = self._ser.write(bytes([int(cmd)]))
+            n = ser.write(bytes([int(cmd)]))
             return n == 1
         except SerialException:
             log.exception("serial write failed")
             return False
 
     def _write_raw(self, data: bytes) -> None:
-        if self._ser is None:
+        ser = self._ser
+        if ser is None:
             return
         try:
-            self._ser.write(data)
-        except SerialException:
-            log.exception("serial write_raw failed")
+            ser.write(data)
+        except SerialException as e:
+            self._emit_error(f"serial write failed: {e}")
+            self._stop.set()
 
     def _drain_rx(self) -> None:
-        if self._ser is None:
+        ser = self._ser
+        if ser is None:
             return
         try:
-            chunk = self._ser.read(self._ser.in_waiting or 1)
+            chunk = ser.read(ser.in_waiting or 1)
         except SerialException as e:
             self._emit_error(f"serial read failed: {e}")
             self._stop.set()
@@ -387,10 +415,17 @@ class Protocol:
 
     def _handle_handshake_byte(self, byte: int) -> None:
         # We expect: one ACK byte, followed by 16 bytes of device info.
+        _expected_info_bytes = 16
         if self._handshake_tail:
             self._handshake_buf.append(byte)
             self._handshake_tail -= 1
-            if self._handshake_tail == 0:
+            if len(self._handshake_buf) > _expected_info_bytes:
+                # Belt-and-suspenders: should never happen given the tail counter,
+                # but discard and reset so a misbehaving device can't grow the buffer.
+                log.warning("handshake buffer exceeded %d bytes — discarding", _expected_info_bytes)
+                self._handshake_buf.clear()
+                self._handshake_tail = 0
+            elif self._handshake_tail == 0:
                 info_bytes = bytes(self._handshake_buf)
                 self._handshake_buf.clear()
                 self._process_device_info(info_bytes)
@@ -416,15 +451,18 @@ class Protocol:
 
     def _send_next_page(self) -> None:
         page_size = self._dev_page_size or DEFAULT_PAGE_SIZE
-        if len(self._pending_payload) >= page_size:
+        with self._download_lock:
+            has_page = len(self._pending_payload) >= page_size
+            if has_page:
+                page, self._pending_payload = (
+                    self._pending_payload[:page_size],
+                    self._pending_payload[page_size:],
+                )
+                self._pages_sent += 1
+        if has_page:
             self._set_state(State.SENDING)
-            page, self._pending_payload = (
-                self._pending_payload[:page_size],
-                self._pending_payload[page_size:],
-            )
             self._write_cmd(Command.NEXT_BLOCK)
             self._write_raw(page)
-            self._pages_sent += 1
             if self._callbacks.on_page_sent:
                 try:
                     self._callbacks.on_page_sent(self._pages_sent, self._pages_total)

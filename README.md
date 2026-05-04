@@ -58,7 +58,7 @@ Python 3.10+ required.
 git clone https://github.com/niwciu/SecureLoader.git
 cd SecureLoader
 
-pip install -e "[gui]"   # CLI + GUI
+pip install -e ".[gui]"  # CLI + GUI
 pip install -e .          # CLI only
 ```
 
@@ -164,7 +164,7 @@ This produces:
 CLI is designed for automation — everything is done in one command:
 
 ```bash
-sld flash --file firmware.bin --port COM3 --baud 115200
+sld flash --file firmware.bin --port COM3 --baudrate 115200
 ```
 
 Typical flow:
@@ -182,6 +182,37 @@ sld list-ports
 sld info --file firmware.bin
 sld info --port COM3
 ```
+
+---
+
+### 📡 Fetching firmware from an HTTP server
+
+SecureLoader can download firmware directly from an HTTP server before flashing — no manual file transfer needed.
+
+```bash
+# 1. Configure your server URL once (HTTPS is required by default)
+sld config set http.base_url https://myserver/update
+
+# 2. Download the latest firmware (license/unique IDs come from the device)
+sld fetch --license AB --unique C0FE --output firmware.bin
+
+# 3. Flash as usual
+sld flash --file firmware.bin --port /dev/ttyUSB0
+```
+
+If the server requires authentication, set credentials once:
+
+```bash
+sld config set http.login myuser
+sld config set-password          # secure interactive prompt — avoids shell history
+```
+
+> ⚠️ Plain HTTP (`http://`) is rejected by default. Pass `--allow-insecure` to `fetch`
+> only in isolated lab environments where HTTPS is not available.
+
+The GUI exposes the same feature via the **Fetch from server** and **Get Previous Firmware** buttons — both become active once a device is connected.
+
+See the [User Guide](https://niwciu.github.io/SecureLoader/USER_GUIDE/) for HTTP server path requirements and full configuration details.
 
 ---
 
@@ -220,7 +251,7 @@ sld-gui
 
 Both CLI and GUI follow the same internal state machine:
 
-CONNECTING → HANDSHAKE → TRANSFER → VERIFY → DISCONNECT
+IDLE → CONNECTING → CONNECTED → STARTING → SENDING → CONNECTED (done)
 
 ---
 
@@ -251,7 +282,7 @@ cd SecureLoader
 3. 🧪 **Install development environment**
 
 ```bash
-pip install -e "[gui,dev]"
+pip install -e ".[gui,dev]"
 ```
 
 4. 🔄 **Create a new branch for your changes**
@@ -265,11 +296,13 @@ git checkout -b feature/my-change
 6. 🧪 **Run tests and checks locally**
 
 ```bash
-pytest
+QT_QPA_PLATFORM=offscreen pytest --cov=src/secure_loader --cov-fail-under=70
 ruff check src tests
 mypy src
 black src tests
 flake8 src tests
+bandit -r src/ -ll -x src/secure_loader/gui/resources
+pip-audit --skip-editable
 ```
 
 7. 🚀 **Push changes to your fork**

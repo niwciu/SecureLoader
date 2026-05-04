@@ -19,7 +19,7 @@ log = logging.getLogger(__name__)
 
 def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(
-        level=logging.INFO,
+        level=logging.WARNING,
         format="%(asctime)s %(levelname)-7s %(name)s: %(message)s",
     )
     config = load_config()

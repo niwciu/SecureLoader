@@ -83,27 +83,31 @@ class ProtocolWorker(QObject):
                 self._proto.disconnect()
             except Exception:
                 log.exception("error during disconnect")
+            self._proto = None  # release reference before signalling done
             self.finished.emit()
 
     @Slot(bytes)
     def start_download(self, firmware: bytes) -> None:
-        if self._proto is None:
+        proto = self._proto
+        if proto is None:
             return
         try:
-            self._proto.start_download(firmware)
+            proto.start_download(firmware)
         except ProtocolError as e:
             self.error_occurred.emit(str(e))
 
     @Slot()
     def stop(self) -> None:
-        if self._proto is not None:
-            self._proto.stop()
+        proto = self._proto
+        if proto is not None:
+            proto.stop()
 
 
 class DownloadWorker(QObject):
     """Fetch a firmware blob from a :class:`FirmwareSource` on a background thread."""
 
-    finished = Signal(bytes, object)  # (data, FirmwareHeader | None)
+    # second argument is FirmwareHeader | None — Signal() does not support union types
+    finished = Signal(bytes, object)
     progress = Signal(int, int)
     error_occurred = Signal(str)
 

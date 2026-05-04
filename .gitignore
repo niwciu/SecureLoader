@@ -147,6 +147,4 @@ test_output.csv
 debug.log
 PROMPT_AI_AGENT_*.md
 
-/docs
-
 .ruff_cache/

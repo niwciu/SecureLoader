@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 from PySide6.QtCore import Qt, QThread, QUrl
 from PySide6.QtGui import QAction, QActionGroup, QCloseEvent, QDesktopServices, QIcon, QPixmap
@@ -44,9 +43,6 @@ from ..core.updater import check_device_matches_firmware
 from ..i18n import _, get_language, set_language
 from .login_dialog import LoginDialog
 from .workers import DownloadWorker, ProtocolWorker, read_firmware_file, start_in_thread
-
-if TYPE_CHECKING:
-    pass
 
 log = logging.getLogger(__name__)
 
@@ -247,39 +243,39 @@ class MainWindow(QMainWindow):
         self.get_prev_firmware_button.setEnabled(False)
         grid.addWidget(self.get_prev_firmware_button, 9, 3)
 
-        # ----- Row 11: Protocol
+        # ----- Row 10: Protocol
         self._lbl_protocol = QLabel(_("Protocol"))
-        grid.addWidget(self._lbl_protocol, 11, 0)
+        grid.addWidget(self._lbl_protocol, 10, 0)
         self.protocol_edit = QLineEdit()
         self.protocol_edit.setEnabled(False)
-        grid.addWidget(self.protocol_edit, 11, 1)
+        grid.addWidget(self.protocol_edit, 10, 1)
 
-        # ----- Row 12: File size | Update button
+        # ----- Row 11: File size | Update button
         self._lbl_file_size = QLabel(_("File Size"))
-        grid.addWidget(self._lbl_file_size, 12, 0)
+        grid.addWidget(self._lbl_file_size, 11, 0)
         self.size_edit = QLineEdit()
         self.size_edit.setEnabled(False)
-        grid.addWidget(self.size_edit, 12, 1)
+        grid.addWidget(self.size_edit, 11, 1)
         self.download_button = QPushButton(_("Update"))
         self.download_button.setEnabled(False)
         self.download_button.setMinimumHeight(56)
         self.download_button.clicked.connect(self._on_update_clicked)
-        grid.addWidget(self.download_button, 12, 3, 2, 1)
+        grid.addWidget(self.download_button, 11, 3, 2, 1)
 
-        # ----- Row 13: Update progress
+        # ----- Row 12: Update progress
         self._lbl_update_progress = QLabel(_("Update progress"))
-        grid.addWidget(self._lbl_update_progress, 13, 0)
+        grid.addWidget(self._lbl_update_progress, 12, 0)
         self.download_progress = QProgressBar()
-        grid.addWidget(self.download_progress, 13, 1)
+        grid.addWidget(self.download_progress, 12, 1)
 
-        # ----- Row 14: separator before transfer section
+        # ----- Row 13: separator before transfer section
         line2 = QFrame()
         line2.setFrameShape(QFrame.Shape.HLine)
         line2.setFrameShadow(QFrame.Shadow.Sunken)
-        grid.addWidget(line2, 14, 0, 1, 4)
+        grid.addWidget(line2, 13, 0, 1, 4)
 
         # ----- Trailing vertical spacer
-        grid.setRowStretch(19, 1)
+        grid.setRowStretch(18, 1)
 
         self.statusBar()
 
@@ -680,8 +676,8 @@ class MainWindow(QMainWindow):
                 self, __app_name__, _("Device must be connected before downloading.")
             )
             return
-        license_id = self._device_info.format_product_id()[6:8]
-        unique_id = self._device_info.format_product_id()[14:18]
+        license_id = self._device_info.license_id
+        unique_id = self._device_info.unique_id
         prev_version: str | None = None
         if previous:
             if self._firmware_header is None:
@@ -698,6 +694,8 @@ class MainWindow(QMainWindow):
         identifier = FirmwareIdentifier(
             license_id=license_id, unique_id=unique_id, app_version=prev_version
         )
+        self.get_firmware_button.setEnabled(False)
+        self.get_prev_firmware_button.setEnabled(False)
         worker = DownloadWorker(source, identifier, previous=previous)
         worker.progress.connect(self._on_http_progress)
         worker.finished.connect(self._on_fetch_finished)
@@ -709,6 +707,7 @@ class MainWindow(QMainWindow):
         self.http_progress.setValue(received)
 
     def _on_fetch_finished(self, data: bytes, header: object) -> None:
+        self._update_download_button()
         if header is None:
             QMessageBox.warning(
                 self,
@@ -727,7 +726,7 @@ class MainWindow(QMainWindow):
 
     def _on_fetch_error(self, msg: str) -> None:
         self.http_progress.setValue(0)
-        self._clear_firmware_info()
+        self._update_download_button()
         QMessageBox.critical(self, _("Server connection problem"), msg)
 
     # -------------------------------------------------------------- update

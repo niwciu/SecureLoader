@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import struct
+import zlib
 
 import pytest
 
@@ -25,9 +26,11 @@ def sample_header_bytes() -> bytes:
         pageCount       = 4
         flashPageSize   = 256
         IV              = 0x00 .. 0x0F
-        crc32           = 0xDEADBEEF
+        crc32           = computed over the matching 4x256-byte payload
     """
     iv = bytes(range(16))
+    payload = bytes(i & 0xFF for i in range(4 * 256))
+    crc = zlib.crc32(payload) & 0xFFFFFFFF
     return _HEADER.pack(
         0x00010002,
         0xAABBCCDD,
@@ -37,12 +40,12 @@ def sample_header_bytes() -> bytes:
         4,
         256,
         iv,
-        0xDEADBEEF,
+        crc,
     )
 
 
 @pytest.fixture
 def sample_firmware(sample_header_bytes: bytes) -> bytes:
-    """A complete firmware blob: header + 4 pages x 256 bytes."""
+    """A complete firmware blob: header + 4 pages x 256 bytes, with correct CRC32."""
     payload = bytes(i & 0xFF for i in range(4 * 256))
     return sample_header_bytes + payload

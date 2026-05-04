@@ -80,6 +80,25 @@ class TestHandshake:
         assert driver.state == State.CONNECTING
         assert driver._handshake_tail == 0
 
+    def test_handshake_buffer_guard_discards_overflow(
+        self, driver: Protocol, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        import logging
+
+        driver._set_state(State.CONNECTING)
+        # Start a valid handshake.
+        driver._handle_byte(_ack(Command.GET_VERSION))
+        assert driver._handshake_tail == 16
+        # Corrupt the tail counter so the guard fires (simulate misbehaving device).
+        driver._handshake_tail = 1  # only 1 more expected
+        # Fill the buffer past 16 bytes manually to trigger the guard.
+        driver._handshake_buf.extend(bytes(16))  # already 16 bytes
+        with caplog.at_level(logging.WARNING, logger="secure_loader.core.protocol"):
+            driver._handle_byte(0xFF)  # this append makes it 17 bytes → guard triggers
+        assert driver._handshake_tail == 0
+        assert len(driver._handshake_buf) == 0
+        assert any("handshake buffer exceeded" in r.message for r in caplog.records)
+
 
 class TestDownloadFlow:
     def _prime_connected(self, driver: Protocol, page_size: int = 256) -> None:
@@ -160,3 +179,77 @@ class TestStateCallbacks:
         driver._set_state(State.CONNECTED)  # duplicate, should be suppressed
         driver._set_state(State.IDLE)
         assert seen == [State.CONNECTING, State.CONNECTED, State.IDLE]
+
+
+class TestDeviceInfoProperties:
+    def test_license_id_is_hex_chars_4_to_6(self) -> None:
+        dev = DeviceInfo(
+            bootloader_version=0x1,
+            product_id=0xAABBCCDD11223344,
+            flash_page_size=256,
+        )
+        # 0xAABBCCDD11223344 → hex "AABBCCDD11223344"; chars [4:6] = "CC"
+        assert dev.license_id == "CC"
+
+    def test_unique_id_is_hex_chars_12_to_16(self) -> None:
+        dev = DeviceInfo(
+            bootloader_version=0x1,
+            product_id=0xAABBCCDD11223344,
+            flash_page_size=256,
+        )
+        # chars [12:16] = "3344"
+        assert dev.unique_id == "3344"
+
+    def test_license_id_zero_pads(self) -> None:
+        dev = DeviceInfo(bootloader_version=0, product_id=0x0000FF0000000000, flash_page_size=256)
+        assert dev.license_id == "FF"
+
+    def test_format_product_id(self) -> None:
+        dev = DeviceInfo(bootloader_version=1, product_id=0xAABBCCDD11223344, flash_page_size=256)
+        assert dev.format_product_id() == "0xAABBCCDD11223344"
+
+
+class TestDownloadBlocking:
+    def test_blocking_download_succeeds(self, sample_firmware: bytes) -> None:
+        """download_blocking completes when we simulate a well-behaved device."""
+        import time
+
+        p = Protocol(port="/dev/null-stub", parity=Parity.NONE)
+        p._write_cmd = MagicMock(return_value=True)  # type: ignore[method-assign]
+        p._write_raw = MagicMock()  # type: ignore[method-assign]
+        p.connect = MagicMock()  # type: ignore[method-assign]
+
+        def fake_run() -> None:
+            # Drive handshake: CONNECTING → CONNECTED.
+            p._set_state(State.CONNECTING)
+            p._handle_byte(_ack(Command.GET_VERSION))
+            for b in struct.pack("<IQI", 0x1, 0xAABBCCDD11223344, 256):
+                p._handle_byte(b)
+            # Wait until download_blocking calls start_download (state → STARTING).
+            while p._state == State.CONNECTED and not p._stop.is_set():
+                time.sleep(0.005)
+            if p._stop.is_set():
+                return
+            # Simulate device ACK for START, then 4 NEXT_BLOCK ACKs.
+            p._handle_byte(_ack(Command.START))
+            for _ in range(4):
+                p._handle_byte(_ack(Command.NEXT_BLOCK))
+            p._stop.wait()
+
+        p.run = fake_run  # type: ignore[method-assign]
+        p.download_blocking(sample_firmware, timeout=5.0)
+        assert p.state == State.CONNECTED
+
+    def test_blocking_download_raises_on_timeout(self, sample_firmware: bytes) -> None:
+        p = Protocol(port="/dev/null-stub", parity=Parity.NONE)
+        p._write_cmd = MagicMock(return_value=True)  # type: ignore[method-assign]
+        p._write_raw = MagicMock()  # type: ignore[method-assign]
+        p.connect = MagicMock()  # type: ignore[method-assign]
+
+        def fake_run() -> None:
+            # Never advance to CONNECTED — simulates device not responding.
+            p._stop.wait()
+
+        p.run = fake_run  # type: ignore[method-assign]
+        with pytest.raises(proto.ProtocolError, match="timed out"):
+            p.download_blocking(sample_firmware, timeout=0.1)

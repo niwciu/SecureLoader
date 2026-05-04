@@ -90,6 +90,7 @@ TRANSLATIONS: dict[Language, dict[str, str]] = {
         ),
         "Starting transfer...": "Übertragung wird gestartet...",
         "Update finished.": "Aktualisierung abgeschlossen.",
+        "Proceed with firmware update?": "Firmware-Update durchführen?",
     },
     "fr": {
         # Window / menu
@@ -159,6 +160,7 @@ TRANSLATIONS: dict[Language, dict[str, str]] = {
         ),
         "Starting transfer...": "Démarrage du transfert...",
         "Update finished.": "Mise à jour terminée.",
+        "Proceed with firmware update?": "Procéder à la mise à jour du firmware ?",
     },
     "es": {
         # Window / menu
@@ -226,6 +228,7 @@ TRANSLATIONS: dict[Language, dict[str, str]] = {
         ),
         "Starting transfer...": "Iniciando transferencia...",
         "Update finished.": "Actualización terminada.",
+        "Proceed with firmware update?": "¿Proceder con la actualización del firmware?",
     },
     "it": {
         # Window / menu
@@ -293,6 +296,7 @@ TRANSLATIONS: dict[Language, dict[str, str]] = {
         ),
         "Starting transfer...": "Avvio trasferimento...",
         "Update finished.": "Aggiornamento completato.",
+        "Proceed with firmware update?": "Procedere con l'aggiornamento del firmware?",
     },
     "pl": {
         # Window / menu
@@ -362,6 +366,7 @@ TRANSLATIONS: dict[Language, dict[str, str]] = {
         ),
         "Starting transfer...": "Rozpoczynanie transferu...",
         "Update finished.": "Aktualizacja zakończona.",
+        "Proceed with firmware update?": "Czy przeprowadzić aktualizację firmware?",
     },
 }
 
