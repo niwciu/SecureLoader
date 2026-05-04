@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+import os
 import struct
 import zlib
 
 import pytest
 
 from secure_loader.core.firmware import HEADER_SIZE
+
+# Must be set before any Qt import. conftest.py is loaded before test modules,
+# so setting it here ensures PySide6 sees the offscreen platform on collection.
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 _HEADER = struct.Struct("<IIIIIII16sI")
 assert _HEADER.size == HEADER_SIZE

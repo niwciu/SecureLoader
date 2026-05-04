@@ -454,9 +454,7 @@ def config_set_cmd(ctx: click.Context, key: str, value: str) -> None:
     if key == "ui.language":
         valid = ["auto", *available_languages()]
         if value not in valid:
-            raise click.UsageError(
-                f"invalid language {value!r}; choose from: {', '.join(valid)}"
-            )
+            raise click.UsageError(f"invalid language {value!r}; choose from: {', '.join(valid)}")
     elif key == "http.base_url" and value and not value.startswith(("http://", "https://")):
         raise click.UsageError("http.base_url must start with http:// or https://")
     elif key == "http.password":

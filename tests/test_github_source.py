@@ -46,7 +46,9 @@ def _binary_response(content: bytes) -> MagicMock:
 
 
 class TestSelectAsset:
-    def test_exact_name_preferred(self, source: GithubReleasesFirmwareSource, identifier: FirmwareIdentifier) -> None:
+    def test_exact_name_preferred(
+        self, source: GithubReleasesFirmwareSource, identifier: FirmwareIdentifier
+    ) -> None:
         assets = [
             {"name": "cc_3344.bin", "url": "https://api.github.com/assets/1"},
             {"name": "cc_3344_extra.bin", "url": "https://api.github.com/assets/2"},
@@ -54,19 +56,25 @@ class TestSelectAsset:
         selected = source._select_asset(assets, identifier)
         assert selected["url"] == "https://api.github.com/assets/1"
 
-    def test_fallback_to_first_match(self, source: GithubReleasesFirmwareSource, identifier: FirmwareIdentifier) -> None:
+    def test_fallback_to_first_match(
+        self, source: GithubReleasesFirmwareSource, identifier: FirmwareIdentifier
+    ) -> None:
         assets = [
             {"name": "cc_3344_v2.bin", "url": "https://api.github.com/assets/2"},
         ]
         selected = source._select_asset(assets, identifier)
         assert selected["url"] == "https://api.github.com/assets/2"
 
-    def test_raises_when_no_match(self, source: GithubReleasesFirmwareSource, identifier: FirmwareIdentifier) -> None:
+    def test_raises_when_no_match(
+        self, source: GithubReleasesFirmwareSource, identifier: FirmwareIdentifier
+    ) -> None:
         assets = [{"name": "other.bin", "url": "https://api.github.com/assets/3"}]
         with pytest.raises(FirmwareSourceError, match="no release asset"):
             source._select_asset(assets, identifier)
 
-    def test_raises_when_no_assets(self, source: GithubReleasesFirmwareSource, identifier: FirmwareIdentifier) -> None:
+    def test_raises_when_no_assets(
+        self, source: GithubReleasesFirmwareSource, identifier: FirmwareIdentifier
+    ) -> None:
         with pytest.raises(FirmwareSourceError, match="no release asset"):
             source._select_asset([], identifier)
 
@@ -76,7 +84,11 @@ class TestFetchLatest:
         self, source: GithubReleasesFirmwareSource, identifier: FirmwareIdentifier
     ) -> None:
         payload = b"\x01\x02\x03\x04"
-        asset = {"name": "cc_3344.bin", "url": "https://api.github.com/assets/1", "size": len(payload)}
+        asset = {
+            "name": "cc_3344.bin",
+            "url": "https://api.github.com/assets/1",
+            "size": len(payload),
+        }
         release_resp = _json_response({"assets": [asset]})
         binary_resp = _binary_response(payload)
 
@@ -111,7 +123,7 @@ class TestFetchPrevious:
         self, source: GithubReleasesFirmwareSource, identifier: FirmwareIdentifier
     ) -> None:
         ident = FirmwareIdentifier(license_id="CC", unique_id="3344", app_version="1.0.0")
-        payload = b"\xDE\xAD"
+        payload = b"\xde\xad"
         asset = {"name": "cc_3344.bin", "url": "https://api.github.com/assets/5", "size": 2}
         release_resp = _json_response({"assets": [asset]})
         binary_resp = _binary_response(payload)
@@ -140,7 +152,11 @@ class TestDownloadAsset:
         self, source: GithubReleasesFirmwareSource, identifier: FirmwareIdentifier
     ) -> None:
         payload = b"x" * 256
-        asset = {"name": "cc_3344.bin", "url": "https://api.github.com/assets/7", "size": len(payload)}
+        asset = {
+            "name": "cc_3344.bin",
+            "url": "https://api.github.com/assets/7",
+            "size": len(payload),
+        }
         release_resp = _json_response({"assets": [asset]})
         binary_resp = _binary_response(payload)
 

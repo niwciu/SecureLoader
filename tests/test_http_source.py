@@ -53,7 +53,10 @@ class TestCheckBaseUrl:
         session_mock = MagicMock()
         session_mock.get.side_effect = requests.ConnectionError("no server")
         src._session = session_mock
-        with caplog.at_level(logging.WARNING, logger="secure_loader.core.sources.http"), pytest.raises(FirmwareSourceError):
+        with (
+            caplog.at_level(logging.WARNING, logger="secure_loader.core.sources.http"),
+            pytest.raises(FirmwareSourceError),
+        ):
             src.fetch_latest(identifier)
         assert any("cleartext" in r.message.lower() for r in caplog.records)
 
@@ -64,7 +67,10 @@ class TestCheckBaseUrl:
         session_mock = MagicMock()
         session_mock.get.side_effect = requests.ConnectionError("no server")
         src._session = session_mock
-        with caplog.at_level(logging.WARNING, logger="secure_loader.core.sources.http"), pytest.raises(FirmwareSourceError):
+        with (
+            caplog.at_level(logging.WARNING, logger="secure_loader.core.sources.http"),
+            pytest.raises(FirmwareSourceError),
+        ):
             src.fetch_latest(identifier)
         assert not any("cleartext" in r.message.lower() for r in caplog.records)
 
@@ -111,7 +117,7 @@ class TestFetchLatest:
     def test_fetches_info_then_binary(
         self, source: HttpFirmwareSource, identifier: FirmwareIdentifier
     ) -> None:
-        payload = b"\xDE\xAD\xBE\xEF" * 16
+        payload = b"\xde\xad\xbe\xef" * 16
         info_resp = _make_response(text="1.2.3")
         bin_resp = _make_response(content=payload)
         source._session = MagicMock()
@@ -224,7 +230,9 @@ class TestDownloadSizeCap:
 
 class TestTlsVerify:
     def test_tls_verify_false_raises_without_allow_insecure(self) -> None:
-        with pytest.raises(FirmwareSourceError, match="TLS certificate verification cannot be disabled"):
+        with pytest.raises(
+            FirmwareSourceError, match="TLS certificate verification cannot be disabled"
+        ):
             HttpFirmwareSource(base_url="https://firmware.example.com", tls_verify=False)
 
     def test_tls_verify_false_allowed_with_allow_insecure(
@@ -255,9 +263,7 @@ class TestTlsVerify:
 class TestAuth:
     def test_credentials_passed_to_session(self, identifier: FirmwareIdentifier) -> None:
         creds = HttpCredentials(login="user", password="pw")
-        src = HttpFirmwareSource(
-            base_url="https://firmware.example.com", credentials=creds
-        )
+        src = HttpFirmwareSource(base_url="https://firmware.example.com", credentials=creds)
         info_resp = _make_response(text="1.0.0")
         bin_resp = _make_response(content=b"data")
         src._session = MagicMock()

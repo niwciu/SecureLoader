@@ -144,5 +144,3 @@ def _save_config_locked(config: AppConfig, path: Path | None) -> None:
     os.replace(tmp, cfg_path)
     with contextlib.suppress(OSError):  # chmod is unavailable on Windows
         os.chmod(cfg_path, 0o600)
-
-

@@ -34,6 +34,4 @@ def audit_logger() -> logging.Logger:
 
 def log_flash(port: str, fw_version: str, outcome: str) -> None:
     """Record a firmware flash attempt to the rotating audit log."""
-    audit_logger().info(
-        "FLASH port=%s fw_version=%s outcome=%s", port, fw_version, outcome
-    )
+    audit_logger().info("FLASH port=%s fw_version=%s outcome=%s", port, fw_version, outcome)

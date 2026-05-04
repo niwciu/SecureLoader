@@ -112,7 +112,9 @@ class TestConcurrentAccess:
 
 
 class TestKeyringStorage:
-    def test_password_stored_in_keyring_not_ini(self, tmp_cfg: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_password_stored_in_keyring_not_ini(
+        self, tmp_cfg: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         mock_kr = MagicMock()
         mock_kr.get_password.return_value = None
         monkeypatch.setattr("secure_loader.config._KEYRING_AVAILABLE", True)
@@ -125,7 +127,9 @@ class TestKeyringStorage:
         text = tmp_cfg.read_text()
         assert "secret" not in text
 
-    def test_password_loaded_from_keyring(self, tmp_cfg: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_password_loaded_from_keyring(
+        self, tmp_cfg: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         mock_kr = MagicMock()
         mock_kr.get_password.return_value = "from_keyring"
         monkeypatch.setattr("secure_loader.config._KEYRING_AVAILABLE", True)

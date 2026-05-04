@@ -105,9 +105,7 @@ class TestSplitPages:
 
 
 class TestValidateFirmware:
-    def _make_valid_blob(
-        self, page_count: int = 4, page_size: int = 256
-    ) -> bytes:
+    def _make_valid_blob(self, page_count: int = 4, page_size: int = 256) -> bytes:
         """Build a firmware blob with a correct CRC32."""
         import struct
 

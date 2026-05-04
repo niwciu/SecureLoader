@@ -82,9 +82,7 @@ class TestConfigSet:
             patch("secure_loader.cli.main.load_config", return_value=AppConfig()),
             patch("secure_loader.cli.main.save_config"),
         ):
-            result = runner.invoke(
-                cli, ["config", "set", "http.base_url", "https://example.com"]
-            )
+            result = runner.invoke(cli, ["config", "set", "http.base_url", "https://example.com"])
         assert result.exit_code == 0
 
     def test_empty_base_url_clears_value(self, runner: CliRunner) -> None:
@@ -144,8 +142,14 @@ class TestFetchWarning:
             runner.invoke(
                 cli,
                 [
-                    "fetch", "--license", "CC", "--unique", "3344",
-                    "--output", "/dev/null", "--allow-insecure",
+                    "fetch",
+                    "--license",
+                    "CC",
+                    "--unique",
+                    "3344",
+                    "--output",
+                    "/dev/null",
+                    "--allow-insecure",
                 ],
                 catch_exceptions=True,
             )

@@ -15,7 +15,7 @@ from secure_loader.core.protocol import DeviceInfo, ProtocolCallbacks, ProtocolE
 
 def _make_firmware() -> bytes:
     """Build a minimal valid firmware blob whose header matches _FakeDevice."""
-    payload = b"\xAA" * 1024
+    payload = b"\xaa" * 1024
     crc = zlib.crc32(payload) & 0xFFFFFFFF
     # struct layout: protocolVersion, productId_MSB, productId_LSB,
     #                appVersion, prevAppVersion, pageCount, flashPageSize,
@@ -27,9 +27,9 @@ def _make_firmware() -> bytes:
         0x11223344,  # productId LSB    — together: 0xAABBCCDD11223344
         0x01020304,  # appVersion
         0x01020300,  # prevAppVersion
-        1,           # pageCount
-        1024,        # flashPageSize    — matches _FakeDevice.flash_page_size
-        bytes(16),   # IV
+        1,  # pageCount
+        1024,  # flashPageSize    — matches _FakeDevice.flash_page_size
+        bytes(16),  # IV
         crc,
     )
     return header + payload

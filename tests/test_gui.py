@@ -5,12 +5,7 @@ Run with:  QT_QPA_PLATFORM=offscreen pytest tests/test_gui.py
 
 from __future__ import annotations
 
-import os
-
 import pytest
-
-os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-
 from PySide6.QtWidgets import QApplication
 
 
@@ -105,8 +100,15 @@ class TestWorkerHelpers:
         crc = zlib.crc32(payload) & 0xFFFFFFFF
         header = struct.pack(
             "<IIIIIII16sI",
-            0x00010002, 0xAABBCCDD, 0x11223344,
-            0x01020304, 0x01020300, 4, 256, bytes(16), crc,
+            0x00010002,
+            0xAABBCCDD,
+            0x11223344,
+            0x01020304,
+            0x01020300,
+            4,
+            256,
+            bytes(16),
+            crc,
         )
         fw = tmp_path / "test.bin"
         fw.write_bytes(header + payload)
