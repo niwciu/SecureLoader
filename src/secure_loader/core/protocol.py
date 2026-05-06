@@ -100,7 +100,7 @@ class DeviceInfo:
 
     @property
     def custom_id(self) -> str:
-        """Custom field (bytes 0–3): characters ``[0:8]`` of the 16-hex-digit product ID."""
+        """Custom field (bytes 0-3): characters ``[0:8]`` of the 16-hex-digit product ID."""
         return f"{self.product_id:016X}"[0:8]
 
     @property
@@ -115,7 +115,7 @@ class DeviceInfo:
 
     @property
     def unique_id(self) -> str:
-        """Unique ID (bytes 6–7): characters ``[12:16]`` of the 16-hex-digit product ID."""
+        """Unique ID (bytes 6-7): characters ``[12:16]`` of the 16-hex-digit product ID."""
         return f"{self.product_id:016X}"[12:16]
 
     def format_bootloader_version(self) -> str:

@@ -23,8 +23,8 @@ class FirmwareIdentifier:
     providers document which attributes they require.
 
     The four ``*_id`` fields mirror the product ID byte convention:
-    ``custom_id`` (bytes 0–3), ``hw_id`` (byte 4), ``license_id`` (byte 5),
-    ``unique_id`` (bytes 6–7).  Which fields are actually used to build a
+    ``custom_id`` (bytes 0-3), ``hw_id`` (byte 4), ``license_id`` (byte 5),
+    ``unique_id`` (bytes 6-7).  Which fields are actually used to build a
     download URL is determined by :attr:`HttpFirmwareSource.path_segments`.
     """
 

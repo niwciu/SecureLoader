@@ -7,7 +7,8 @@ import zlib
 from unittest.mock import MagicMock, patch
 
 import pytest
-from PySide6.QtCore import QObject, Signal, Slot
+
+# from PySide6.QtCore import QObject, Signal, Slot
 from PySide6.QtWidgets import QApplication
 
 
@@ -21,8 +22,15 @@ def _make_firmware() -> bytes:
     crc = zlib.crc32(payload) & 0xFFFFFFFF
     header = struct.pack(
         "<IIIIIII16sI",
-        0x00010002, 0xAABBCCDD, 0x11223344,
-        0x01020304, 0x01020300, 4, 256, bytes(16), crc,
+        0x00010002,
+        0xAABBCCDD,
+        0x11223344,
+        0x01020304,
+        0x01020300,
+        4,
+        256,
+        bytes(16),
+        crc,
     )
     return header + payload
 
@@ -36,8 +44,8 @@ class TestProtocolWorkerRun:
         finished = []
         worker.finished.connect(lambda: finished.append(True))
 
-        with patch("secure_loader.gui.workers.Protocol") as MockProto:
-            inst = MockProto.return_value
+        with patch("secure_loader.gui.workers.Protocol") as mock_proto:
+            inst = mock_proto.return_value
             inst.connect.return_value = None
             inst.run.return_value = None
             inst.disconnect.return_value = None
@@ -50,8 +58,8 @@ class TestProtocolWorkerRun:
         from secure_loader.gui.workers import ProtocolWorker
 
         worker = ProtocolWorker(port="/dev/null", parity=Parity.NONE, baudrate=115200, stopbits=1.0)
-        with patch("secure_loader.gui.workers.Protocol") as MockProto:
-            inst = MockProto.return_value
+        with patch("secure_loader.gui.workers.Protocol") as mock_proto:
+            inst = mock_proto.return_value
             worker.run()
         inst.disconnect.assert_called_once()
 
@@ -65,8 +73,8 @@ class TestProtocolWorkerRun:
         worker.error_occurred.connect(errors.append)
         worker.finished.connect(lambda: finished.append(True))
 
-        with patch("secure_loader.gui.workers.Protocol") as MockProto:
-            MockProto.return_value.connect.side_effect = ProtocolError("no device")
+        with patch("secure_loader.gui.workers.Protocol") as mock_proto:
+            mock_proto.return_value.connect.side_effect = ProtocolError("no device")
             worker.run()
 
         assert errors
@@ -234,5 +242,3 @@ class TestDownloadWorker:
         worker.run()
 
         assert progress_calls
-
-

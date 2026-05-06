@@ -68,7 +68,9 @@ class HttpFirmwareSource(FirmwareSource):
         self._credentials = credentials
         self._timeout_s = timeout_s
         self._allow_insecure = allow_insecure
-        self._path_segments = list(path_segments) if path_segments is not None else list(DEFAULT_PATH_SEGMENTS)
+        self._path_segments = (
+            list(path_segments) if path_segments is not None else list(DEFAULT_PATH_SEGMENTS)
+        )
         self._session = session or requests.Session()
         self._session.verify = tls_verify
         if tls_verify is False:

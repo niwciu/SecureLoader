@@ -21,19 +21,19 @@ from ..config import AppConfig, save_config
 from ..i18n import _
 
 _SEGMENT_DEFS: list[tuple[str, str]] = [
-    ("Custom (bytes 0–3)", "custom_id"),
+    ("Custom (bytes 0-3)", "custom_id"),
     ("HW ID (byte 4)", "hw_id"),
     ("License ID (byte 5)", "license_id"),
-    ("Unique ID (bytes 6–7)", "unique_id"),
+    ("Unique ID (bytes 6-7)", "unique_id"),
 ]
 """(display label, FirmwareIdentifier field name) for each product-ID slice."""
 
 # Fixed order matches the 64-bit productId hex layout: chars [0:8][8:10][10:12][12:16]
 _PID_VIZ: list[tuple[str, str, str, str]] = [
-    ("AABBCCDD", "custom_id",  "custom",  "B 0–3"),
-    ("11",       "hw_id",      "hw_id",   "B 4"),
-    ("22",       "license_id", "license", "B 5"),
-    ("3344",     "unique_id",  "unique",  "B 6–7"),
+    ("AABBCCDD", "custom_id", "custom", "B 0-3"),
+    ("11", "hw_id", "hw_id", "B 4"),
+    ("22", "license_id", "license", "B 5"),
+    ("3344", "unique_id", "unique", "B 6-7"),
 ]
 """(hex placeholder, field_name, short label, byte description) for the PID strip."""
 
@@ -49,8 +49,10 @@ class ServerSettingsDialog(QDialog):
         self.setMinimumWidth(520)
         self._build_ui()
         self._populate()
-        self.layout().activate()
-        sh = self.layout().sizeHint()
+        root_layout = self.layout()
+        assert root_layout is not None
+        root_layout.activate()
+        sh = root_layout.sizeHint()
         self.resize(max(self.minimumWidth(), sh.width()), sh.height())
 
     # ------------------------------------------------------------------ UI
@@ -228,7 +230,7 @@ class ServerSettingsDialog(QDialog):
 
             hex_cells += (
                 f'<td style="background:{bg}; border:1px solid {border}; border-radius:3px; '
-                f'padding:2px 5px; font-family:monospace; font-size:12px; color:{fg}; '
+                f"padding:2px 5px; font-family:monospace; font-size:12px; color:{fg}; "
                 f'text-align:center; white-space:nowrap">{hex_val}</td>'
                 f'<td style="width:3px"></td>'
             )
@@ -236,14 +238,14 @@ class ServerSettingsDialog(QDialog):
                 f'<td style="text-align:center; font-size:10px; color:{fg}; '
                 f'white-space:nowrap">{short}'
                 f'<br><span style="color:#6b7280; font-size:9px">{byte_desc}</span></td>'
-                f'<td></td>'
+                f"<td></td>"
             )
 
         html = (
             f'<table cellspacing="0" cellpadding="0">'
-            f'<tr>{hex_cells}</tr>'
+            f"<tr>{hex_cells}</tr>"
             f'<tr style="padding-top:2px">{lbl_cells}</tr>'
-            f'</table>'
+            f"</table>"
         )
         self._pid_viz_lbl.setText(html)
 

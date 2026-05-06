@@ -85,7 +85,7 @@ class FirmwareHeader:
 
     @property
     def custom_id(self) -> str:
-        """Custom field (bytes 0–3): characters ``[0:8]`` of the 16-hex-digit product ID."""
+        """Custom field (bytes 0-3): characters ``[0:8]`` of the 16-hex-digit product ID."""
         return f"{self.product_id:016X}"[0:8]
 
     @property
@@ -100,7 +100,7 @@ class FirmwareHeader:
 
     @property
     def unique_id(self) -> str:
-        """Unique ID (bytes 6–7): characters ``[12:16]`` of the 16-hex-digit product ID."""
+        """Unique ID (bytes 6-7): characters ``[12:16]`` of the 16-hex-digit product ID."""
         return f"{self.product_id:016X}"[12:16]
 
     def format_protocol_version(self) -> str:
@@ -191,7 +191,7 @@ def load_firmware(path: str | Path) -> tuple[FirmwareHeader, bytes]:
 
     Raises :class:`FirmwareFormatError` if the file is too short to contain a
     valid header or if the file does not contain the number of encrypted bytes
-    declared in the header (``page_count × flash_page_size``).
+    declared in the header (``page_count x flash_page_size``).
     Raises :class:`OSError` if the file cannot be read.
 
     CRC validation is intentionally not performed here.  The CRC stored in the
