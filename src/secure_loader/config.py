@@ -22,7 +22,7 @@ from pathlib import Path
 
 from platformdirs import user_config_dir
 
-from .core.sources.http import DEFAULT_BASE_URL, HttpCredentials
+from .core.sources.http import DEFAULT_BASE_URL, DEFAULT_PATH_SEGMENTS, HttpCredentials
 
 log = logging.getLogger(__name__)
 
@@ -59,11 +59,15 @@ class AppConfig:
     http_base_url: str = DEFAULT_BASE_URL
     http_login: str = ""
     http_password: str = ""
+    http_use_credentials: bool = False
+    http_path_segments: list[str] = field(default_factory=lambda: list(DEFAULT_PATH_SEGMENTS))
     language: str = "auto"  # "en" | "de" | "fr" | "es" | "it" | "pl" | "auto"
     update_instruction_url: str = ""  # empty = menu item hidden
     last_firmware_paths: list[str] = field(default_factory=list)
 
     def credentials(self) -> HttpCredentials | None:
+        if not self.http_use_credentials:
+            return None
         if not self.http_login and not self.http_password:
             return None
         return HttpCredentials(login=self.http_login, password=self.http_password)
@@ -85,10 +89,23 @@ def _load_config_locked(path: Path | None) -> AppConfig:
     ui = parser["ui"] if parser.has_section("ui") else {}
     recent = parser["recent"] if parser.has_section("recent") else {}
 
+    _raw_segs = http.get("path_segments", "")
+    path_segments = (
+        [s.strip() for s in _raw_segs.split(",") if s.strip()]
+        if _raw_segs.strip()
+        else list(DEFAULT_PATH_SEGMENTS)
+    )
+    _login = http.get("login", "")
+    _use_creds_raw = http.get("use_credentials", "")
+    # Backward compat: if the key is absent, infer True when a login is already stored.
+    http_use_credentials = _use_creds_raw.lower() == "true" if _use_creds_raw else bool(_login)
+
     cfg = AppConfig(
         http_base_url=http.get("base_url", DEFAULT_BASE_URL),
-        http_login=http.get("login", ""),
+        http_login=_login,
         http_password=http.get("password", ""),
+        http_use_credentials=http_use_credentials,
+        http_path_segments=path_segments,
         language=ui.get("language", "auto"),
         update_instruction_url=ui.get("instruction_url", ""),
         last_firmware_paths=[recent[key] for key in sorted(recent) if key.startswith("firmware_")],
@@ -132,6 +149,8 @@ def _save_config_locked(config: AppConfig, path: Path | None) -> None:
         "base_url": config.http_base_url,
         "login": config.http_login,
         "password": ini_password,
+        "use_credentials": str(config.http_use_credentials).lower(),
+        "path_segments": ",".join(config.http_path_segments),
     }
     parser["ui"] = {
         "language": config.language,

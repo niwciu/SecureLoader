@@ -99,13 +99,23 @@ class DeviceInfo:
     flash_page_size: int
 
     @property
+    def custom_id(self) -> str:
+        """Custom field (bytes 0–3): characters ``[0:8]`` of the 16-hex-digit product ID."""
+        return f"{self.product_id:016X}"[0:8]
+
+    @property
+    def hw_id(self) -> str:
+        """HW ID (byte 4): characters ``[8:10]`` of the 16-hex-digit product ID."""
+        return f"{self.product_id:016X}"[8:10]
+
+    @property
     def license_id(self) -> str:
-        """Characters ``[4:6]`` of the 16-hex-digit product ID (matches ``FirmwareHeader.license_id``)."""
-        return f"{self.product_id:016X}"[4:6]
+        """License ID (byte 5): characters ``[10:12]`` of the 16-hex-digit product ID."""
+        return f"{self.product_id:016X}"[10:12]
 
     @property
     def unique_id(self) -> str:
-        """Characters ``[12:16]`` of the 16-hex-digit product ID (matches ``FirmwareHeader.unique_id``)."""
+        """Unique ID (bytes 6–7): characters ``[12:16]`` of the 16-hex-digit product ID."""
         return f"{self.product_id:016X}"[12:16]
 
     def format_bootloader_version(self) -> str:

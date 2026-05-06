@@ -182,14 +182,24 @@ class TestStateCallbacks:
 
 
 class TestDeviceInfoProperties:
-    def test_license_id_is_hex_chars_4_to_6(self) -> None:
+    def test_custom_id_is_hex_chars_0_to_8(self) -> None:
+        dev = DeviceInfo(bootloader_version=0x1, product_id=0xAABBCCDD11223344, flash_page_size=256)
+        # "AABBCCDD11223344"; chars [0:8] = "AABBCCDD"
+        assert dev.custom_id == "AABBCCDD"
+
+    def test_hw_id_is_hex_chars_8_to_10(self) -> None:
+        dev = DeviceInfo(bootloader_version=0x1, product_id=0xAABBCCDD11223344, flash_page_size=256)
+        # "AABBCCDD11223344"; chars [8:10] = "11"
+        assert dev.hw_id == "11"
+
+    def test_license_id_is_hex_chars_10_to_12(self) -> None:
         dev = DeviceInfo(
             bootloader_version=0x1,
             product_id=0xAABBCCDD11223344,
             flash_page_size=256,
         )
-        # 0xAABBCCDD11223344 → hex "AABBCCDD11223344"; chars [4:6] = "CC"
-        assert dev.license_id == "CC"
+        # "AABBCCDD11223344"; chars [10:12] = "22"
+        assert dev.license_id == "22"
 
     def test_unique_id_is_hex_chars_12_to_16(self) -> None:
         dev = DeviceInfo(
@@ -201,7 +211,8 @@ class TestDeviceInfoProperties:
         assert dev.unique_id == "3344"
 
     def test_license_id_zero_pads(self) -> None:
-        dev = DeviceInfo(bootloader_version=0, product_id=0x0000FF0000000000, flash_page_size=256)
+        # byte 5 = 0xFF: product_id "0000000000FF0000"; chars [10:12] = "FF"
+        dev = DeviceInfo(bootloader_version=0, product_id=0x0000000000FF0000, flash_page_size=256)
         assert dev.license_id == "FF"
 
     def test_format_product_id(self) -> None:

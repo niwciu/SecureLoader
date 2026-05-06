@@ -2,8 +2,13 @@
 
 Two-step download flow:
 
-1. GET ``{base_url}/{license_id}/{unique_id}/info.txt`` — plaintext version tag.
-2. GET ``{base_url}/{license_id}/{unique_id}/{version}.bin`` — the firmware.
+1. GET ``{base_url}/{path}/info.txt`` — plaintext version tag.
+2. GET ``{base_url}/{path}/{version}.bin`` — the firmware binary.
+
+``{path}`` is built from the product-ID fields listed in ``path_segments``
+(default: ``["license_id", "unique_id"]``).  Each element names an attribute
+of :class:`~secure_loader.core.sources.base.FirmwareIdentifier`; the values
+are joined with ``/`` and percent-encoded.
 
 Optional HTTP basic authentication is supported.
 
@@ -30,6 +35,7 @@ log = logging.getLogger(__name__)
 
 DEFAULT_BASE_URL: str = ""
 DEFAULT_TIMEOUT_S: float = 30.0
+DEFAULT_PATH_SEGMENTS: list[str] = ["license_id", "unique_id"]
 _CHUNK_SIZE: int = 64 * 1024
 _MAX_FIRMWARE_BYTES: int = 100 * 1024 * 1024  # 100 MB hard cap
 
@@ -51,6 +57,7 @@ class HttpFirmwareSource(FirmwareSource):
         session: requests.Session | None = None,
         tls_verify: bool | str = True,
         allow_insecure: bool = False,
+        path_segments: list[str] | None = None,
     ) -> None:
         if tls_verify is False and not allow_insecure:
             raise FirmwareSourceError(
@@ -61,6 +68,7 @@ class HttpFirmwareSource(FirmwareSource):
         self._credentials = credentials
         self._timeout_s = timeout_s
         self._allow_insecure = allow_insecure
+        self._path_segments = list(path_segments) if path_segments is not None else list(DEFAULT_PATH_SEGMENTS)
         self._session = session or requests.Session()
         self._session.verify = tls_verify
         if tls_verify is False:
@@ -113,12 +121,13 @@ class HttpFirmwareSource(FirmwareSource):
         return (self._credentials.login, self._credentials.password)
 
     def _url(self, identifier: FirmwareIdentifier, filename: str) -> str:
-        return (
-            f"{self._base_url}/"
-            f"{quote(identifier.license_id, safe='')}/"
-            f"{quote(identifier.unique_id, safe='')}/"
-            f"{quote(filename, safe='.')}"
-        )
+        parts = [
+            quote(str(getattr(identifier, seg, "") or ""), safe="")
+            for seg in self._path_segments
+            if getattr(identifier, seg, "")
+        ]
+        parts.append(quote(filename, safe="."))
+        return self._base_url + "/" + "/".join(parts)
 
     def _get_info(self, identifier: FirmwareIdentifier) -> str:
         url = self._url(identifier, "info.txt")

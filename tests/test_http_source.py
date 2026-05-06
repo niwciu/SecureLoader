@@ -284,3 +284,49 @@ class TestAuth:
         source.fetch_latest(identifier)
         first_kwargs = source._session.get.call_args_list[0][1]
         assert first_kwargs["auth"] is None
+
+
+class TestPathSegments:
+    def test_default_segments_produce_license_unique_path(self) -> None:
+        src = HttpFirmwareSource(base_url="https://fw.example.com")
+        ident = FirmwareIdentifier(license_id="AB", unique_id="1234")
+        url = src._url(ident, "info.txt")
+        assert url == "https://fw.example.com/AB/1234/info.txt"
+
+    def test_custom_segments_change_url_structure(self) -> None:
+        src = HttpFirmwareSource(
+            base_url="https://fw.example.com",
+            path_segments=["hw_id", "license_id", "unique_id"],
+        )
+        ident = FirmwareIdentifier(license_id="AB", unique_id="1234", hw_id="FF")
+        url = src._url(ident, "info.txt")
+        assert url == "https://fw.example.com/FF/AB/1234/info.txt"
+
+    def test_unchecked_segment_skipped_in_url(self) -> None:
+        src = HttpFirmwareSource(
+            base_url="https://fw.example.com",
+            path_segments=["hw_id", "unique_id"],
+        )
+        ident = FirmwareIdentifier(license_id="AB", unique_id="1234", hw_id="FF")
+        url = src._url(ident, "fw.bin")
+        assert "AB" not in url
+        assert url == "https://fw.example.com/FF/1234/fw.bin"
+
+    def test_empty_segment_value_skipped(self) -> None:
+        # hw_id not set on identifier → omitted from path
+        src = HttpFirmwareSource(
+            base_url="https://fw.example.com",
+            path_segments=["hw_id", "unique_id"],
+        )
+        ident = FirmwareIdentifier(license_id="AB", unique_id="1234")
+        url = src._url(ident, "info.txt")
+        assert url == "https://fw.example.com/1234/info.txt"
+
+    def test_no_segments_produces_direct_path(self) -> None:
+        src = HttpFirmwareSource(
+            base_url="https://fw.example.com",
+            path_segments=[],
+        )
+        ident = FirmwareIdentifier(license_id="AB", unique_id="1234")
+        url = src._url(ident, "fw.bin")
+        assert url == "https://fw.example.com/fw.bin"

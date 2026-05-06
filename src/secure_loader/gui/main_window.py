@@ -41,7 +41,7 @@ from ..core.sources import FirmwareIdentifier
 from ..core.sources.http import HttpFirmwareSource
 from ..core.updater import check_device_matches_firmware
 from ..i18n import _, get_language, set_language
-from .login_dialog import LoginDialog
+from .server_settings_dialog import ServerSettingsDialog
 from .workers import DownloadWorker, ProtocolWorker, read_firmware_file, start_in_thread
 
 log = logging.getLogger(__name__)
@@ -314,10 +314,10 @@ class MainWindow(QMainWindow):
             self._menu_lang.addAction(act)
             self._lang_actions[code] = act
 
-        self._menu_cred = self.menuBar().addMenu(_("Credentials"))
-        self._act_login = QAction(_("Set login and password"), self)
-        self._act_login.triggered.connect(self._open_login_dialog)
-        self._menu_cred.addAction(self._act_login)
+        self._menu_settings = self.menuBar().addMenu(_("Settings"))
+        self._act_server_settings = QAction(_("Server settings..."), self)
+        self._act_server_settings.triggered.connect(self._open_server_settings)
+        self._menu_settings.addAction(self._act_server_settings)
 
     def _show_about(self) -> None:
         dlg = QDialog(self)
@@ -412,8 +412,8 @@ class MainWindow(QMainWindow):
         dlg.adjustSize()
         dlg.exec()
 
-    def _open_login_dialog(self) -> None:
-        dialog = LoginDialog(self._config, parent=self)
+    def _open_server_settings(self) -> None:
+        dialog = ServerSettingsDialog(self._config, parent=self)
         dialog.exec()
 
     # ------------------------------------------------------ language switching
@@ -453,12 +453,12 @@ class MainWindow(QMainWindow):
         # Menus
         self._menu_help.setTitle(_("&Help"))
         self._menu_lang.setTitle(_("Language"))
-        self._menu_cred.setTitle(_("Credentials"))
+        self._menu_settings.setTitle(_("Settings"))
         # Menu actions
         self._act_instr.setText(_("Update instruction..."))
         self._act_about.setText(_("&About..."))
         self._act_version.setText(_("Version info"))
-        self._act_login.setText(_("Set login and password"))
+        self._act_server_settings.setText(_("Server settings..."))
         # Re-apply current status text
         self._update_status_text(self._current_state)
 
@@ -691,8 +691,6 @@ class MainWindow(QMainWindow):
                 self, __app_name__, _("Device must be connected before downloading.")
             )
             return
-        license_id = self._device_info.license_id
-        unique_id = self._device_info.unique_id
         prev_version: str | None = None
         if previous:
             if self._firmware_header is None:
@@ -705,9 +703,14 @@ class MainWindow(QMainWindow):
         source = HttpFirmwareSource(
             base_url=self._config.http_base_url,
             credentials=self._config.credentials(),
+            path_segments=self._config.http_path_segments,
         )
         identifier = FirmwareIdentifier(
-            license_id=license_id, unique_id=unique_id, app_version=prev_version
+            custom_id=self._device_info.custom_id,
+            hw_id=self._device_info.hw_id,
+            license_id=self._device_info.license_id,
+            unique_id=self._device_info.unique_id,
+            app_version=prev_version,
         )
         self.get_firmware_button.setEnabled(False)
         self.get_prev_firmware_button.setEnabled(False)

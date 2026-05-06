@@ -222,10 +222,11 @@ Files: [gui/](https://github.com/niwciu/SecureLoader/tree/main/src/secure_loader
 
 ```
 gui/
-├── app.py           — QApplication bootstrap, icon, language
-├── main_window.py   — QMainWindow reproducing mainwindow.ui 1:1
-├── login_dialog.py  — QDialog for HTTP credentials (saves to config.ini)
-└── workers.py       — ProtocolWorker, DownloadWorker (QThread wrappers)
+├── app.py                    — QApplication bootstrap, icon, language
+├── main_window.py            — QMainWindow reproducing mainwindow.ui 1:1
+├── server_settings_dialog.py — QDialog for server URL, credentials, and URL path structure
+├── login_dialog.py           — legacy QDialog (credentials only; kept for tests)
+└── workers.py                — ProtocolWorker, DownloadWorker (QThread wrappers)
 ```
 
 ### View ↔ Logic Relationship
@@ -309,6 +310,8 @@ Structure:
 base_url = 
 login = 
 password = 
+use_credentials = false
+path_segments = license_id,unique_id
 
 [ui]
 language = auto
@@ -322,9 +325,18 @@ firmware_1 = /path/to/prev.bin
 Fields:
 - `http.base_url` — base URL for the HTTP firmware server. Must start with `https://`; plain
   `http://` raises `FirmwareSourceError` unless `allow_insecure=True` is passed explicitly.
-- `http.login` / `http.password` — optional HTTP Basic Auth credentials.
-  When both are empty, authentication is skipped. Stored in the OS keychain when the
-  `[security]` extra (`keyring`) is installed; otherwise in plaintext with `chmod 0600` on Unix.
+- `http.use_credentials` — `true` / `false`. When `false` (default), `login` and `password`
+  are ignored and requests are sent without authentication. Controlled by the checkbox in
+  **Settings → Server settings → Credentials**.
+- `http.login` / `http.password` — HTTP Basic Auth credentials, used only when
+  `use_credentials = true`. Stored in the OS keychain when the `[security]` extra (`keyring`)
+  is installed; otherwise in plaintext with `chmod 0600` on Unix.
+  _Backward compat_: if `use_credentials` is absent in an existing file, it is inferred as
+  `true` when `login` is non-empty, so pre-existing credentials continue to work.
+- `http.path_segments` — comma-separated list of `FirmwareIdentifier` field names that form
+  the URL path between `base_url` and the filename. Defaults to `license_id,unique_id`.
+  Available names: `custom_id`, `hw_id`, `license_id`, `unique_id`.
+  Configured via **Settings → Server settings → URL path structure**.
 - `ui.language` — `"auto" | "en" | "de" | "fr" | "es" | "it" | "pl"`.
 - `ui.instruction_url` — optional URL opened by the _Update instruction…_ GUI
   menu item. When empty, the menu item is hidden.
@@ -403,6 +415,34 @@ offset  size  field
 ```
 
 Wire header = bytes `[0:16] + [20:48]` = 44 B (sent with the `START` command).
+
+### Product ID Convention
+
+The 64-bit `productId` is treated as an **opaque value** by SecureLoader — it
+is compared as a whole between the firmware file and the device response.
+No partial matching is performed.
+
+By convention, the ecosystem tools (EncryptBIN, SecureBootloader) lay out the
+8 bytes as follows:
+
+```
+Hex digit:  0  1  2  3  4  5  6  7    8  9 10 11 12 13 14 15
+Byte:       ╔══════════════════════╗  ╔══╗ ╔═══╗  ╔════════╗
+            ║   custom  (4 B)      ║  ║hw║ ║lic║  ║unique  ║
+            ╚══════════════════════╝  ╚══╝ ╚═══╝  ╚════════╝
+             free for product use     hw_id lic   unique_id
+```
+
+| Slice | Chars | Bytes | Name | Used by SecureLoader |
+|-------|-------|-------|------|----------------------|
+| `[0:8]` | 0–7 | 0–3 | custom | no (opaque) |
+| `[8:10]` | 8–9 | 4 | `hw_id` | no (opaque) |
+| `[10:12]` | 10–11 | 5 | `license_id` | HTTP fetch routing |
+| `[12:16]` | 12–15 | 6–7 | `unique_id` | HTTP fetch routing |
+
+`license_id` and `unique_id` are extracted only when routing a firmware
+download request to the HTTP server (`FirmwareIdentifier`). For all other
+operations (compatibility check, device matching) the full 64-bit value is used.
 
 ### Serial Commands (1 byte each)
 

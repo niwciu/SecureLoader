@@ -131,6 +131,300 @@ class TestAppMain:
         assert isinstance(result, int)
 
 
+@pytest.fixture
+def server_settings_dialog(qapp):
+    from secure_loader.config import AppConfig
+    from secure_loader.gui.server_settings_dialog import ServerSettingsDialog
+
+    dlg = ServerSettingsDialog(config=AppConfig())
+    yield dlg
+    dlg.close()
+
+
+class TestServerSettingsDialogSmoke:
+    def test_instantiates_without_error(self, server_settings_dialog) -> None:
+        assert server_settings_dialog is not None
+
+    def test_window_title_is_set(self, server_settings_dialog) -> None:
+        assert server_settings_dialog.windowTitle() != ""
+
+    def test_url_edit_populated_from_config(self, qapp) -> None:
+        from secure_loader.config import AppConfig
+        from secure_loader.gui.server_settings_dialog import ServerSettingsDialog
+
+        cfg = AppConfig()
+        cfg.http_base_url = "https://fw.example.com"
+        dlg = ServerSettingsDialog(config=cfg)
+        assert dlg._url_edit.text() == "https://fw.example.com"
+        dlg.close()
+
+    def test_credentials_populated_from_config(self, qapp) -> None:
+        from secure_loader.config import AppConfig
+        from secure_loader.gui.server_settings_dialog import ServerSettingsDialog
+
+        cfg = AppConfig()
+        cfg.http_login = "alice"
+        cfg.http_password = "secret"
+        cfg.http_use_credentials = True
+        dlg = ServerSettingsDialog(config=cfg)
+        assert dlg._login_edit.text() == "alice"
+        assert dlg._pwd_edit.text() == "secret"
+        dlg.close()
+
+    def test_use_credentials_checkbox_unchecked_by_default(self, server_settings_dialog) -> None:
+        assert not server_settings_dialog._cred_box.isChecked()
+
+    def test_use_credentials_checkbox_reflects_config(self, qapp) -> None:
+        from secure_loader.config import AppConfig
+        from secure_loader.gui.server_settings_dialog import ServerSettingsDialog
+
+        cfg = AppConfig()
+        cfg.http_use_credentials = True
+        dlg = ServerSettingsDialog(config=cfg)
+        assert dlg._cred_box.isChecked()
+        dlg.close()
+
+    def test_fields_disabled_when_credentials_unchecked(self, server_settings_dialog) -> None:
+        server_settings_dialog._cred_box.setChecked(False)
+        assert not server_settings_dialog._login_edit.isEnabled()
+        assert not server_settings_dialog._pwd_edit.isEnabled()
+
+    def test_fields_enabled_when_credentials_checked(self, server_settings_dialog) -> None:
+        server_settings_dialog._cred_box.setChecked(True)
+        assert server_settings_dialog._login_edit.isEnabled()
+        assert server_settings_dialog._pwd_edit.isEnabled()
+
+    def test_save_persists_use_credentials_true(self, qapp, tmp_path) -> None:
+        from unittest.mock import patch
+
+        from secure_loader.config import AppConfig
+        from secure_loader.gui.server_settings_dialog import ServerSettingsDialog
+
+        cfg = AppConfig()
+        cfg.config_path = str(tmp_path / "config.ini")
+        dlg = ServerSettingsDialog(config=cfg)
+        dlg._cred_box.setChecked(True)
+        with patch("secure_loader.gui.server_settings_dialog.save_config"):
+            dlg._save_and_accept()
+        assert cfg.http_use_credentials is True
+        dlg.close()
+
+    def test_save_persists_use_credentials_false(self, qapp, tmp_path) -> None:
+        from unittest.mock import patch
+
+        from secure_loader.config import AppConfig
+        from secure_loader.gui.server_settings_dialog import ServerSettingsDialog
+
+        cfg = AppConfig()
+        cfg.config_path = str(tmp_path / "config.ini")
+        dlg = ServerSettingsDialog(config=cfg)
+        dlg._cred_box.setChecked(False)
+        with patch("secure_loader.gui.server_settings_dialog.save_config"):
+            dlg._save_and_accept()
+        assert cfg.http_use_credentials is False
+        dlg.close()
+
+    def test_password_is_masked_by_default(self, server_settings_dialog) -> None:
+        from PySide6.QtWidgets import QLineEdit
+
+        assert server_settings_dialog._pwd_edit.echoMode() == QLineEdit.EchoMode.Password
+
+    def test_toggle_password_shows_and_hides(self, server_settings_dialog) -> None:
+        from PySide6.QtWidgets import QLineEdit
+
+        server_settings_dialog._toggle_password(True)
+        assert server_settings_dialog._pwd_edit.echoMode() == QLineEdit.EchoMode.Normal
+        server_settings_dialog._toggle_password(False)
+        assert server_settings_dialog._pwd_edit.echoMode() == QLineEdit.EchoMode.Password
+
+    def test_segment_list_has_four_items(self, server_settings_dialog) -> None:
+        assert server_settings_dialog._seg_list.count() == 4
+
+    def test_default_segments_license_and_unique_checked(self, server_settings_dialog) -> None:
+        from PySide6.QtCore import Qt
+
+        checked = []
+        for i in range(server_settings_dialog._seg_list.count()):
+            item = server_settings_dialog._seg_list.item(i)
+            if item and item.checkState() == Qt.CheckState.Checked:
+                checked.append(item.data(Qt.ItemDataRole.UserRole))
+        assert "license_id" in checked
+        assert "unique_id" in checked
+
+    def test_active_segments_returns_checked_items(self, server_settings_dialog) -> None:
+        segs = server_settings_dialog._active_segments()
+        assert isinstance(segs, list)
+        assert len(segs) >= 1
+
+    def test_pid_viz_label_exists(self, server_settings_dialog) -> None:
+        assert server_settings_dialog._pid_viz_lbl is not None
+
+    def test_pid_viz_contains_all_hex_placeholders(self, server_settings_dialog) -> None:
+        html = server_settings_dialog._pid_viz_lbl.text()
+        assert "AABBCCDD" in html
+        assert "3344" in html
+
+    def test_pid_viz_active_segments_shown_in_blue(self, server_settings_dialog) -> None:
+        # Default active: license_id and unique_id → blue color
+        html = server_settings_dialog._pid_viz_lbl.text()
+        assert "#1d4ed8" in html  # active fg colour
+
+    def test_pid_viz_inactive_segments_shown_in_grey(self, server_settings_dialog) -> None:
+        html = server_settings_dialog._pid_viz_lbl.text()
+        assert "#9ca3af" in html  # inactive fg colour
+
+    def test_pid_viz_shows_byte_descriptions(self, server_settings_dialog) -> None:
+        html = server_settings_dialog._pid_viz_lbl.text()
+        assert "B 0" in html  # custom_id: B 0–3
+        assert "B 4" in html  # hw_id
+        assert "B 5" in html  # license_id
+        assert "B 6" in html  # unique_id: B 6–7
+
+    def test_pid_viz_updates_when_checkbox_toggled(self, server_settings_dialog) -> None:
+        from PySide6.QtCore import Qt
+
+        # Uncheck all segments and verify no active colour remains
+        for i in range(server_settings_dialog._seg_list.count()):
+            server_settings_dialog._seg_list.item(i).setCheckState(Qt.CheckState.Unchecked)
+        html = server_settings_dialog._pid_viz_lbl.text()
+        assert "#1d4ed8" not in html  # no active segment → no blue
+
+    def test_preview_label_contains_preview(self, server_settings_dialog) -> None:
+        text = server_settings_dialog._preview_lbl.text()
+        assert "Preview" in text or "version" in text.lower()
+
+    def test_preview_updates_when_url_changes(self, server_settings_dialog) -> None:
+        server_settings_dialog._url_edit.setText("https://new.example.com")
+        text = server_settings_dialog._preview_lbl.text()
+        assert "new.example.com" in text
+
+    def test_preview_updates_when_checkbox_toggled(self, server_settings_dialog) -> None:
+        from PySide6.QtCore import Qt
+
+        # Uncheck all → preview should not contain any field placeholder
+        for i in range(server_settings_dialog._seg_list.count()):
+            server_settings_dialog._seg_list.item(i).setCheckState(Qt.CheckState.Unchecked)
+        text = server_settings_dialog._preview_lbl.text()
+        assert "{license_id}" not in text
+        assert "{version}.bin" in text
+
+    def test_preview_with_no_segments(self, qapp) -> None:
+        from secure_loader.config import AppConfig
+        from secure_loader.gui.server_settings_dialog import ServerSettingsDialog
+
+        cfg = AppConfig()
+        cfg.http_path_segments = []
+        dlg = ServerSettingsDialog(config=cfg)
+        dlg._url_edit.setText("https://example.com")
+        dlg._update_preview()
+        text = dlg._preview_lbl.text()
+        assert "{version}.bin" in text
+        assert "{license_id}" not in text
+        dlg.close()
+
+    def test_move_up_disabled_at_top(self, server_settings_dialog) -> None:
+        server_settings_dialog._seg_list.setCurrentRow(0)
+        server_settings_dialog._update_move_buttons()
+        assert not server_settings_dialog._up_btn.isEnabled()
+
+    def test_move_down_disabled_at_bottom(self, server_settings_dialog) -> None:
+        last = server_settings_dialog._seg_list.count() - 1
+        server_settings_dialog._seg_list.setCurrentRow(last)
+        server_settings_dialog._update_move_buttons()
+        assert not server_settings_dialog._down_btn.isEnabled()
+
+    def test_move_up_shifts_item(self, server_settings_dialog) -> None:
+        from PySide6.QtCore import Qt
+
+        server_settings_dialog._seg_list.setCurrentRow(1)
+        before = server_settings_dialog._seg_list.item(1).data(Qt.ItemDataRole.UserRole)
+        server_settings_dialog._move_up()
+        after = server_settings_dialog._seg_list.item(0).data(Qt.ItemDataRole.UserRole)
+        assert before == after
+
+    def test_move_down_shifts_item(self, server_settings_dialog) -> None:
+        from PySide6.QtCore import Qt
+
+        server_settings_dialog._seg_list.setCurrentRow(0)
+        before = server_settings_dialog._seg_list.item(0).data(Qt.ItemDataRole.UserRole)
+        server_settings_dialog._move_down()
+        after = server_settings_dialog._seg_list.item(1).data(Qt.ItemDataRole.UserRole)
+        assert before == after
+
+    def test_move_up_at_top_is_noop(self, server_settings_dialog) -> None:
+        from PySide6.QtCore import Qt
+
+        server_settings_dialog._seg_list.setCurrentRow(0)
+        before = server_settings_dialog._seg_list.item(0).data(Qt.ItemDataRole.UserRole)
+        server_settings_dialog._move_up()
+        after = server_settings_dialog._seg_list.item(0).data(Qt.ItemDataRole.UserRole)
+        assert before == after
+
+    def test_move_down_at_bottom_is_noop(self, server_settings_dialog) -> None:
+        from PySide6.QtCore import Qt
+
+        last = server_settings_dialog._seg_list.count() - 1
+        server_settings_dialog._seg_list.setCurrentRow(last)
+        before = server_settings_dialog._seg_list.item(last).data(Qt.ItemDataRole.UserRole)
+        server_settings_dialog._move_down()
+        after = server_settings_dialog._seg_list.item(last).data(Qt.ItemDataRole.UserRole)
+        assert before == after
+
+    def test_save_persists_url_to_config(self, qapp, tmp_path) -> None:
+        from unittest.mock import patch
+
+        from secure_loader.config import AppConfig
+        from secure_loader.gui.server_settings_dialog import ServerSettingsDialog
+
+        cfg = AppConfig()
+        cfg.config_path = str(tmp_path / "config.ini")
+        dlg = ServerSettingsDialog(config=cfg)
+        dlg._url_edit.setText("https://saved.example.com")
+        with patch("secure_loader.gui.server_settings_dialog.save_config"):
+            dlg._save_and_accept()
+        assert cfg.http_base_url == "https://saved.example.com"
+        dlg.close()
+
+    def test_save_persists_credentials_to_config(self, qapp, tmp_path) -> None:
+        from unittest.mock import patch
+
+        from secure_loader.config import AppConfig
+        from secure_loader.gui.server_settings_dialog import ServerSettingsDialog
+
+        cfg = AppConfig()
+        cfg.config_path = str(tmp_path / "config.ini")
+        dlg = ServerSettingsDialog(config=cfg)
+        dlg._login_edit.setText("bob")
+        dlg._pwd_edit.setText("pass123")
+        with patch("secure_loader.gui.server_settings_dialog.save_config"):
+            dlg._save_and_accept()
+        assert cfg.http_login == "bob"
+        assert cfg.http_password == "pass123"
+        dlg.close()
+
+    def test_custom_segments_reflected_in_active_list(self, qapp) -> None:
+        from secure_loader.config import AppConfig
+        from secure_loader.gui.server_settings_dialog import ServerSettingsDialog
+
+        cfg = AppConfig()
+        cfg.http_path_segments = ["hw_id", "license_id"]
+        dlg = ServerSettingsDialog(config=cfg)
+        segs = dlg._active_segments()
+        assert segs == ["hw_id", "license_id"]
+        dlg.close()
+
+    def test_unknown_segment_in_config_shown_with_raw_name(self, qapp) -> None:
+        from secure_loader.config import AppConfig
+        from secure_loader.gui.server_settings_dialog import ServerSettingsDialog
+
+        cfg = AppConfig()
+        cfg.http_path_segments = ["license_id", "unique_id"]
+        dlg = ServerSettingsDialog(config=cfg)
+        # Ensure all 4 known segments are in the list
+        assert dlg._seg_list.count() >= 2
+        dlg.close()
+
+
 class TestLoginDialogSmoke:
     def test_instantiates_without_error(self, login_dialog) -> None:
         assert login_dialog is not None

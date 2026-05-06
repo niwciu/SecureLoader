@@ -34,9 +34,17 @@ class TestParseHeader:
     def test_payload_size_is_pages_times_pagesize(self, sample_header_bytes: bytes) -> None:
         assert parse_header(sample_header_bytes).payload_size == 4 * 256
 
+    def test_custom_id_matches_original_slice(self, sample_header_bytes: bytes) -> None:
+        # product_id hex: AABBCCDD11223344 -> custom = chars [0:8] = "AABBCCDD"
+        assert parse_header(sample_header_bytes).custom_id == "AABBCCDD"
+
+    def test_hw_id_matches_original_slice(self, sample_header_bytes: bytes) -> None:
+        # product_id hex: AABBCCDD11223344 -> hw_id = chars [8:10] = "11"
+        assert parse_header(sample_header_bytes).hw_id == "11"
+
     def test_license_id_matches_original_slice(self, sample_header_bytes: bytes) -> None:
-        # product_id hex: AABBCCDD11223344 -> license = chars [4:6] = "CC"
-        assert parse_header(sample_header_bytes).license_id == "CC"
+        # product_id hex: AABBCCDD11223344 -> license = chars [10:12] = "22"
+        assert parse_header(sample_header_bytes).license_id == "22"
 
     def test_unique_id_matches_original_slice(self, sample_header_bytes: bytes) -> None:
         # product_id hex: AABBCCDD11223344 -> unique = chars [12:16] = "3344"

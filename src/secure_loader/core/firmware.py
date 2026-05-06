@@ -84,22 +84,24 @@ class FirmwareHeader:
         return self.page_count * self.flash_page_size
 
     @property
-    def license_id(self) -> str:
-        """License ID derived from the product ID.
+    def custom_id(self) -> str:
+        """Custom field (bytes 0–3): characters ``[0:8]`` of the 16-hex-digit product ID."""
+        return f"{self.product_id:016X}"[0:8]
 
-        Characters ``[4:6]`` of the 16-hex-digit representation of ``productId``.
-        """
-        hex_id = f"{self.product_id:016X}"
-        return hex_id[4:6]
+    @property
+    def hw_id(self) -> str:
+        """HW ID (byte 4): characters ``[8:10]`` of the 16-hex-digit product ID."""
+        return f"{self.product_id:016X}"[8:10]
+
+    @property
+    def license_id(self) -> str:
+        """License ID (byte 5): characters ``[10:12]`` of the 16-hex-digit product ID."""
+        return f"{self.product_id:016X}"[10:12]
 
     @property
     def unique_id(self) -> str:
-        """Unique ID derived from the product ID.
-
-        Characters ``[12:16]`` of the 16-hex-digit representation of ``productId``.
-        """
-        hex_id = f"{self.product_id:016X}"
-        return hex_id[12:16]
+        """Unique ID (bytes 6–7): characters ``[12:16]`` of the 16-hex-digit product ID."""
+        return f"{self.product_id:016X}"[12:16]
 
     def format_protocol_version(self) -> str:
         return f"0x{self.protocol_version:08X}"

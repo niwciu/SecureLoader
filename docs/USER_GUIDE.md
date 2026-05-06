@@ -244,12 +244,16 @@ The license and unique IDs can be read from the device using `sld info --port ..
 
 #### 🌐 HTTP server requirements
 
-`fetch` expects your server to expose files at the following URL structure:
+`fetch` expects your server to expose files at the following URL structure (default path segments):
 
 ```
 {base_url}/{license_id}/{unique_id}/info.txt
 {base_url}/{license_id}/{unique_id}/{version}.bin
 ```
+
+The path segments between `base_url` and the filename are configurable. You can include any
+combination of `custom_id`, `hw_id`, `license_id`, `unique_id` in any order via
+`http.path_segments` in the config file, or through **Settings → Server settings → URL path structure** in the GUI.
 
 | File | Content | Required for |
 |------|---------|--------------|
@@ -424,7 +428,18 @@ Both buttons are **fully implemented**. They are disabled at startup and become 
 
 After a successful download the binary is **loaded directly into the firmware fields** — it is ready to flash without selecting a file manually.
 
-HTTP credentials are set via **Credentials → Set login and password** and are applied automatically to every fetch. The same [HTTP server requirements](#-http-server-requirements) as for the CLI `fetch` command apply.
+Server connection settings are configured via **Settings → Server settings**, which opens a dialog with three sections:
+
+- **Server** — the HTTPS base URL for your firmware server.
+- **Credentials** — enable the checkbox to activate HTTP Basic Auth, then enter login and
+  password. When the checkbox is off, requests are sent without authentication. The Product ID
+  field layout is shown as a colour-coded hex strip so you can see exactly which bytes map to
+  which fields.
+- **URL path structure** — choose which Product ID fields (`custom_id`, `hw_id`, `license_id`,
+  `unique_id`) to include in the download path and in what order. A live preview shows the
+  resulting URL template.
+
+The same [HTTP server requirements](#-http-server-requirements) as for the CLI `fetch` command apply.
 
 ### 🗣️ Language
 
@@ -440,9 +455,11 @@ The config file is INI format and written with `0600` permissions on Unix.
 
 ```ini
 [http]
-base_url = https://example.com/update/binary
-login    =
-password =
+base_url        = https://example.com/update/binary
+login           =
+password        =
+use_credentials = false
+path_segments   = license_id,unique_id
 
 [ui]
 language = auto
@@ -458,8 +475,10 @@ firmware_1 = /home/user/projects/firmware_prev.bin
 | Key | Description |
 |-----|-------------|
 | `base_url` | URL of the firmware HTTP server. Must start with `https://`. Plain `http://` requires `--allow-insecure`. |
-| `login` | HTTP Basic Auth username. Empty = no authentication. |
+| `use_credentials` | `true` / `false`. When `false` (default), `login` and `password` are ignored and requests are unauthenticated. Set to `true` via **Settings → Server settings → Credentials** checkbox. |
+| `login` | HTTP Basic Auth username, used only when `use_credentials = true`. |
 | `password` | HTTP Basic Auth password. Stored in OS keychain when `[security]` extra is installed; otherwise plaintext with `0600` permissions. Use `sld config set-password` to avoid shell history exposure. |
+| `path_segments` | Comma-separated list of Product ID fields used to build the download URL path. Default: `license_id,unique_id`. Available: `custom_id`, `hw_id`, `license_id`, `unique_id`. |
 
 ### `[ui]` section
 

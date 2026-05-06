@@ -32,6 +32,7 @@ class TestRoundTrip:
             http_base_url="https://example.com",
             http_login="user",
             http_password="secret",
+            http_use_credentials=True,
             language="de",
             update_instruction_url="https://example.com/instructions",
             last_firmware_paths=["/tmp/fw1.bin", "/tmp/fw2.bin"],
@@ -41,9 +42,27 @@ class TestRoundTrip:
         assert loaded.http_base_url == "https://example.com"
         assert loaded.http_login == "user"
         assert loaded.http_password == "secret"
+        assert loaded.http_use_credentials is True
         assert loaded.language == "de"
         assert loaded.update_instruction_url == "https://example.com/instructions"
         assert loaded.last_firmware_paths == ["/tmp/fw1.bin", "/tmp/fw2.bin"]
+
+    def test_use_credentials_false_round_trips(self, tmp_cfg: Path) -> None:
+        original = AppConfig(http_login="user", http_password="pw", http_use_credentials=False)
+        save_config(original, tmp_cfg)
+        loaded = load_config(tmp_cfg)
+        assert loaded.http_use_credentials is False
+
+    def test_use_credentials_legacy_inferred_true_when_login_present(self, tmp_cfg: Path) -> None:
+        # Old config files have no use_credentials key → infer True if login is set.
+        tmp_cfg.write_text("[http]\nlogin = admin\npassword = pw\n", encoding="utf-8")
+        loaded = load_config(tmp_cfg)
+        assert loaded.http_use_credentials is True
+
+    def test_use_credentials_legacy_inferred_false_when_no_login(self, tmp_cfg: Path) -> None:
+        tmp_cfg.write_text("[http]\nbase_url = https://example.com\n", encoding="utf-8")
+        loaded = load_config(tmp_cfg)
+        assert loaded.http_use_credentials is False
 
     def test_recent_paths_capped_at_10(self, tmp_cfg: Path) -> None:
         cfg = AppConfig(last_firmware_paths=[f"/tmp/fw{i}.bin" for i in range(15)])
@@ -64,15 +83,19 @@ class TestCredentials:
         cfg = AppConfig()
         assert cfg.credentials() is None
 
+    def test_credentials_none_when_use_credentials_false(self) -> None:
+        cfg = AppConfig(http_login="admin", http_password="pw", http_use_credentials=False)
+        assert cfg.credentials() is None
+
     def test_credentials_set_when_login_present(self) -> None:
-        cfg = AppConfig(http_login="admin", http_password="pw")
+        cfg = AppConfig(http_login="admin", http_password="pw", http_use_credentials=True)
         creds = cfg.credentials()
         assert creds is not None
         assert creds.login == "admin"
         assert creds.password == "pw"
 
     def test_credentials_set_when_only_login(self) -> None:
-        cfg = AppConfig(http_login="admin")
+        cfg = AppConfig(http_login="admin", http_use_credentials=True)
         creds = cfg.credentials()
         assert creds is not None
 
