@@ -69,6 +69,206 @@ class TestMainWindowSmoke:
         assert main_window.bootloader_edit.text() == ""
 
 
+class TestMainWindowHandlers:
+    """Directly invoke MainWindow event-handler methods with mocked dependencies."""
+
+    def _make_device_info(self):
+        from secure_loader.core.protocol import DeviceInfo
+        return DeviceInfo(bootloader_version=0x1, product_id=0xAABBCCDD11223344, flash_page_size=256)
+
+    def _make_firmware_header(self, sample_firmware):
+        from secure_loader.core.firmware import parse_header
+        return parse_header(sample_firmware)
+
+    def test_retranslate_ui_runs_without_error(self, main_window) -> None:
+        main_window._retranslate_ui()
+
+    def test_update_status_text_idle(self, main_window) -> None:
+        from secure_loader.core.protocol import State
+        main_window._update_status_text(State.IDLE)
+        assert main_window.status_edit.text() != ""
+
+    def test_update_status_text_connected(self, main_window) -> None:
+        from secure_loader.core.protocol import State
+        main_window._update_status_text(State.CONNECTED)
+        assert "Connect" in main_window.status_edit.text()
+
+    def test_on_state_changed_clears_device_info_on_idle(self, main_window) -> None:
+        from secure_loader.core.protocol import State
+        main_window._device_info = self._make_device_info()
+        main_window._on_state_changed(State.IDLE)
+        assert main_window._device_info is None
+
+    def test_on_state_changed_keeps_device_info_on_connected(self, main_window) -> None:
+        from secure_loader.core.protocol import State
+        main_window._device_info = self._make_device_info()
+        main_window._on_state_changed(State.CONNECTED)
+        assert main_window._device_info is not None
+
+    def test_on_device_info_populates_fields(self, main_window) -> None:
+        info = self._make_device_info()
+        main_window._on_device_info(info)
+        assert main_window.dev_product_id_edit.text() != ""
+        assert main_window.bootloader_edit.text() != ""
+
+    def test_on_protocol_finished_clears_worker_references(self, main_window) -> None:
+        from unittest.mock import MagicMock
+        main_window._protocol_worker = MagicMock()
+        main_window._protocol_thread = MagicMock()
+        main_window._on_protocol_finished()
+        assert main_window._protocol_worker is None
+        assert main_window._protocol_thread is None
+
+    def test_on_page_sent_updates_progress_bar(self, main_window) -> None:
+        main_window._on_page_sent(3, 10)
+        assert main_window.download_progress.maximum() == 10
+        assert main_window.download_progress.value() == 3
+
+    def test_on_download_done_shows_message(self, main_window) -> None:
+        from unittest.mock import patch
+        with patch("secure_loader.gui.main_window.QMessageBox.information") as mock_msg:
+            main_window._on_download_done()
+        mock_msg.assert_called_once()
+
+    def test_on_protocol_error_shows_message_and_disconnects(self, main_window) -> None:
+        from unittest.mock import patch
+        with patch("secure_loader.gui.main_window.QMessageBox.critical"):
+            with patch.object(main_window, "_disconnect_serial") as mock_disc:
+                main_window._on_protocol_error("device lost")
+        mock_disc.assert_called_once()
+
+    def test_current_baudrate_returns_int(self, main_window) -> None:
+        assert isinstance(main_window._current_baudrate(), int)
+
+    def test_current_parity_returns_parity(self, main_window) -> None:
+        from secure_loader.core.protocol import Parity
+        assert isinstance(main_window._current_parity(), Parity)
+
+    def test_current_stopbits_returns_float(self, main_window) -> None:
+        assert isinstance(main_window._current_stopbits(), float)
+
+    def test_populate_ports_with_no_ports(self, main_window) -> None:
+        from unittest.mock import patch
+        with patch("secure_loader.gui.main_window.list_ports.comports", return_value=[]):
+            main_window._populate_ports()
+        assert main_window.port_box.count() == 0
+
+    def test_on_connect_clicked_when_not_connected_calls_connect(self, main_window) -> None:
+        from unittest.mock import patch
+        main_window._is_connected = False
+        with patch.object(main_window, "_connect_serial") as mock_conn:
+            main_window._on_connect_clicked()
+        mock_conn.assert_called_once()
+
+    def test_on_connect_clicked_when_connected_calls_disconnect(self, main_window) -> None:
+        from unittest.mock import patch
+        main_window._is_connected = True
+        with patch.object(main_window, "_disconnect_serial") as mock_disc:
+            main_window._on_connect_clicked()
+        mock_disc.assert_called_once()
+
+    def test_disconnect_serial_with_no_worker_does_not_crash(self, main_window) -> None:
+        main_window._protocol_worker = None
+        main_window._protocol_thread = None
+        main_window._disconnect_serial()
+        assert not main_window._is_connected
+
+    def test_clear_firmware_info_empties_fields(self, main_window) -> None:
+        main_window.protocol_edit.setText("0x1")
+        main_window._clear_firmware_info()
+        assert main_window.protocol_edit.text() == ""
+        assert main_window._firmware_bytes == b""
+
+    def test_clear_device_info_empties_fields(self, main_window) -> None:
+        main_window.dev_product_id_edit.setText("0xDEAD")
+        main_window._clear_device_info()
+        assert main_window.dev_product_id_edit.text() == ""
+        assert main_window._device_info is None
+
+    def test_load_firmware_into_ui_populates_fields(self, main_window, sample_firmware) -> None:
+        header = self._make_firmware_header(sample_firmware)
+        main_window._load_firmware_into_ui(header, sample_firmware)
+        assert main_window.protocol_edit.text() != ""
+        assert main_window.product_id_edit.text() != ""
+        assert main_window._firmware_header is header
+        assert main_window._firmware_bytes is sample_firmware
+
+    def test_on_http_progress_sets_progress_bar(self, main_window) -> None:
+        main_window._on_http_progress(50, 200)
+        assert main_window.http_progress.maximum() == 200
+        assert main_window.http_progress.value() == 50
+
+    def test_on_fetch_finished_with_valid_header_loads_firmware(
+        self, main_window, sample_firmware
+    ) -> None:
+        from unittest.mock import patch
+        header = self._make_firmware_header(sample_firmware)
+        with patch("secure_loader.gui.main_window.QMessageBox.information"):
+            main_window._on_fetch_finished(sample_firmware, header)
+        assert main_window._firmware_bytes == sample_firmware
+
+    def test_on_fetch_finished_with_none_header_shows_warning(self, main_window) -> None:
+        from unittest.mock import patch
+        with patch("secure_loader.gui.main_window.QMessageBox.warning") as mock_warn:
+            main_window._on_fetch_finished(b"\x00" * 10, None)
+        mock_warn.assert_called_once()
+
+    def test_on_fetch_error_shows_message(self, main_window) -> None:
+        from unittest.mock import patch
+        with patch("secure_loader.gui.main_window.QMessageBox.critical") as mock_err:
+            main_window._on_fetch_error("timeout")
+        mock_err.assert_called_once()
+
+    def test_on_update_clicked_with_no_worker_is_noop(self, main_window) -> None:
+        main_window._protocol_worker = None
+        main_window._firmware_bytes = b"\x00" * 48
+        main_window._on_update_clicked()  # must not raise
+
+    def test_on_update_clicked_calls_start_download(self, main_window) -> None:
+        from unittest.mock import MagicMock
+        mock_worker = MagicMock()
+        main_window._protocol_worker = mock_worker
+        main_window._firmware_bytes = b"\x00" * 48
+        main_window._on_update_clicked()
+        mock_worker.start_download.assert_called_once_with(b"\x00" * 48)
+        main_window._protocol_worker = None
+
+    def test_update_download_button_disabled_without_firmware(self, main_window) -> None:
+        main_window._firmware_bytes = b""
+        main_window._update_download_button()
+        assert not main_window.download_button.isEnabled()
+
+    def test_refresh_compatibility_no_device_no_firmware(self, main_window) -> None:
+        main_window._device_info = None
+        main_window._firmware_header = None
+        main_window._refresh_compatibility_indicator()
+        assert not main_window._compat_ok
+
+    def test_refresh_compatibility_matching_device_and_firmware(
+        self, main_window, sample_firmware
+    ) -> None:
+        from secure_loader.core.protocol import DeviceInfo
+        # bootloader_version must match firmware.protocol_version (0x00010002)
+        info = DeviceInfo(
+            bootloader_version=0x00010002,
+            product_id=0xAABBCCDD11223344,
+            flash_page_size=256,
+        )
+        header = self._make_firmware_header(sample_firmware)
+        main_window._device_info = info
+        main_window._firmware_header = header
+        main_window._refresh_compatibility_indicator()
+        assert main_window._compat_ok
+
+    def test_remember_recent_prepends_and_caps_at_10(self, main_window) -> None:
+        from unittest.mock import patch
+        main_window._config.last_firmware_paths = [f"/old/fw{i}.bin" for i in range(10)]
+        with patch("secure_loader.gui.main_window.save_config"):
+            main_window._remember_recent("/new/fw.bin")
+        assert main_window._config.last_firmware_paths[0] == "/new/fw.bin"
+        assert len(main_window._config.last_firmware_paths) == 10
+
+
 class TestProtocolWorkerThreadSafety:
     def test_stop_before_run_does_not_crash(self, qapp) -> None:
         from secure_loader.core.protocol import Parity

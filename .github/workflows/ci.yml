@@ -71,7 +71,7 @@ jobs:
     - name: Dependency vulnerability scan
       run: |
         .venv/bin/pip install pip-audit
-        .venv/bin/pip-audit --skip-editable --ignore-vuln CVE-2026-3219
+        .venv/bin/pip-audit --skip-editable
 
     - name: Run tests
       run: |
