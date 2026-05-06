@@ -522,8 +522,18 @@ class MainWindow(QMainWindow):
         self.connect_button.setText(_("Disconnect"))
 
     def _disconnect_serial(self) -> None:
-        if self._protocol_worker is not None:
-            self._protocol_worker.stop()
+        worker = self._protocol_worker
+        thread = self._protocol_thread
+        self._protocol_worker = None
+        self._protocol_thread = None
+        if worker is not None:
+            worker.stop()
+        if thread is not None:
+            # wait() ensures thread T processes its DeferredDelete (C++ worker
+            # deletion + shiboken invalidation) before Python's __del__ fires on
+            # the local `worker` reference, preventing a use-after-free bus error.
+            thread.quit()
+            thread.wait(2000)
         self._is_connected = False
         self.connect_button.setText(_("Connect"))
         self._clear_device_info()

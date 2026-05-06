@@ -150,12 +150,18 @@ def parse_header(data: bytes | bytearray | memoryview) -> FirmwareHeader:
 
 
 def validate_firmware(data: bytes | bytearray) -> FirmwareHeader:
-    """Parse and fully validate a firmware blob.
+    """Parse and fully validate a firmware blob that contains an *unencrypted* payload.
 
     Checks:
     * Buffer is at least :data:`HEADER_SIZE` bytes (via :func:`parse_header`).
     * Payload length matches ``page_count x flash_page_size``.
     * CRC32 of the payload matches the value stored in the header.
+
+    .. warning::
+        Do **not** call this on EncryptBIN-produced files.  EncryptBIN computes
+        the CRC over the *plaintext* payload and then encrypts it; the file on
+        disk contains the *encrypted* payload, so the CRC will never match.
+        This function is only valid for unencrypted test blobs.
 
     Returns the parsed :class:`FirmwareHeader` on success; raises
     :class:`FirmwareFormatError` on any validation failure.
@@ -179,14 +185,29 @@ def validate_firmware(data: bytes | bytearray) -> FirmwareHeader:
 
 
 def load_firmware(path: str | Path) -> tuple[FirmwareHeader, bytes]:
-    """Read a firmware file from disk, parse, and validate it.
+    """Read a firmware file from disk, parse the header, and check payload length.
 
-    Raises :class:`FirmwareFormatError` if the file is too short, the payload
-    length does not match the declared page count, or the CRC32 does not match.
+    Raises :class:`FirmwareFormatError` if the file is too short to contain a
+    valid header or if the file does not contain the number of encrypted bytes
+    declared in the header (``page_count × flash_page_size``).
     Raises :class:`OSError` if the file cannot be read.
+
+    CRC validation is intentionally not performed here.  The CRC stored in the
+    header is computed by EncryptBIN over the *unencrypted* payload before
+    encryption; SecureLoader only ever sees the *encrypted* form and cannot
+    reproduce that value.  CRC verification is performed by the device
+    bootloader after decryption.
     """
     data = Path(path).read_bytes()
-    header = validate_firmware(data)
+    header = parse_header(data)
+    payload = data[HEADER_SIZE:]
+    expected_len = header.page_count * header.flash_page_size
+    if len(payload) < expected_len:
+        raise FirmwareFormatError(
+            f"payload too short: header declares {header.page_count} pages x "
+            f"{header.flash_page_size} B = {expected_len} B, "
+            f"but only {len(payload)} B follow the header"
+        )
     return header, data
 
 
