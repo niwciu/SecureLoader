@@ -81,8 +81,10 @@ class HttpFirmwareSource(FirmwareSource):
         identifier: FirmwareIdentifier,
         progress: ProgressCallback | None = None,
     ) -> bytes:
+        log.debug("fetch_latest: base_url=%s path_segments=%s", self._base_url, self._path_segments)
         self._check_base_url()
         version = self._get_info(identifier)
+        log.debug("fetch_latest: resolved version=%s", version)
         return self._get_binary(identifier, version, progress)
 
     def fetch_previous(
@@ -90,6 +92,12 @@ class HttpFirmwareSource(FirmwareSource):
         identifier: FirmwareIdentifier,
         progress: ProgressCallback | None = None,
     ) -> bytes:
+        log.debug(
+            "fetch_previous: base_url=%s app_version=%s path_segments=%s",
+            self._base_url,
+            identifier.app_version,
+            self._path_segments,
+        )
         self._check_base_url()
         if not identifier.app_version:
             raise FirmwareSourceError(
@@ -109,7 +117,7 @@ class HttpFirmwareSource(FirmwareSource):
             if not self._allow_insecure:
                 raise FirmwareSourceError(
                     f"plain HTTP is not permitted ({self._base_url}). "
-                    "Use HTTPS, or pass --allow-insecure to acknowledge the risk."
+                    "Use HTTPS, or enable 'Allow plain HTTP' in Server settings."
                 )
             log.warning(
                 "Fetching firmware over plain HTTP (%s) — credentials and firmware "
@@ -129,16 +137,21 @@ class HttpFirmwareSource(FirmwareSource):
             if getattr(identifier, seg, "")
         ]
         parts.append(quote(filename, safe="."))
-        return self._base_url + "/" + "/".join(parts)
+        url = self._base_url + "/" + "/".join(parts)
+        log.debug("_url: %s", url)
+        return url
 
     def _get_info(self, identifier: FirmwareIdentifier) -> str:
         url = self._url(identifier, "info.txt")
+        log.debug("GET %s", url)
         try:
             response = self._session.get(url, auth=self._auth(), timeout=self._timeout_s)
+            log.debug("response: HTTP %s", response.status_code)
             response.raise_for_status()
         except requests.RequestException as e:
             raise FirmwareSourceError(f"cannot fetch {url}: {e}") from e
         version = response.text.strip()
+        log.debug("info.txt content: %r", version)
         if not _VERSION_RE.match(version):
             raise FirmwareSourceError(
                 f"server returned an invalid version string {version!r}; "
@@ -153,6 +166,7 @@ class HttpFirmwareSource(FirmwareSource):
         progress: ProgressCallback | None,
     ) -> bytes:
         url = self._url(identifier, f"{version}.bin")
+        log.debug("GET %s", url)
         try:
             response = self._session.get(
                 url,
@@ -160,6 +174,7 @@ class HttpFirmwareSource(FirmwareSource):
                 stream=True,
                 timeout=self._timeout_s,
             )
+            log.debug("response: HTTP %s  Content-Length: %s", response.status_code, response.headers.get("Content-Length", "unknown"))
             response.raise_for_status()
             total = int(response.headers.get("Content-Length", 0))
             buf = bytearray()
@@ -174,6 +189,7 @@ class HttpFirmwareSource(FirmwareSource):
                         progress(len(buf), total)
             if progress is not None and total == 0:
                 progress(len(buf), len(buf))
+            log.debug("download complete: %d bytes", len(buf))
             return bytes(buf)
         except requests.RequestException as e:
             raise FirmwareSourceError(f"cannot download {url}: {e}") from e

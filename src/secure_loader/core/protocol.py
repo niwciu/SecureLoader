@@ -5,7 +5,7 @@ Wire protocol (1-byte command framing, little-endian payloads):
     Host → Device:
         GetVersion (0x01)            — poll the bootloader
         Start      (0x02) + header   — begin a firmware transfer
-        NextBlock  (0x03) + page     — transmit one page of payload
+        NextPage   (0x03) + page     — transmit one page of payload
         Reset      (0x04)            — soft-reset the device
 
     Device → Host:
@@ -49,11 +49,11 @@ class Command(enum.IntEnum):
     NONE = 0x00
     GET_VERSION = 0x01
     START = 0x02
-    NEXT_BLOCK = 0x03
+    NEXT_PAGE = 0x03
     RESET = 0x04  # reserved — not yet issued by the host driver
 
-    OK_MASK = 0x40
-    ERROR_MASK = 0x80
+    OK = 0x40
+    ERR = 0x80
 
 
 class State(enum.Enum):
@@ -139,11 +139,11 @@ assert _DEVICE_INFO_STRUCT.size == 16
 
 
 def _ack(cmd: Command) -> int:
-    return int(cmd) ^ int(Command.OK_MASK)
+    return int(cmd) ^ int(Command.OK)
 
 
 def _nak(cmd: Command) -> int:
-    return int(cmd) ^ int(Command.ERROR_MASK)
+    return int(cmd) ^ int(Command.ERR)
 
 
 @dataclass
@@ -416,10 +416,10 @@ class Protocol:
             elif byte == _nak(Command.START):
                 self._on_download_error()
         elif state == State.SENDING:
-            if byte == _ack(Command.NEXT_BLOCK):
+            if byte == _ack(Command.NEXT_PAGE):
                 self._last_alive = time.monotonic()
                 self._send_next_page()
-            elif byte == _nak(Command.NEXT_BLOCK):
+            elif byte == _nak(Command.NEXT_PAGE):
                 self._on_download_error()
         # IDLE: swallow stray bytes silently.
 
@@ -471,7 +471,7 @@ class Protocol:
                 self._pages_sent += 1
         if has_page:
             self._set_state(State.SENDING)
-            self._write_cmd(Command.NEXT_BLOCK)
+            self._write_cmd(Command.NEXT_PAGE)
             self._write_raw(page)
             if self._callbacks.on_page_sent:
                 try:

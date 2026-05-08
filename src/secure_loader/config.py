@@ -60,6 +60,7 @@ class AppConfig:
     http_login: str = ""
     http_password: str = ""
     http_use_credentials: bool = False
+    http_allow_insecure: bool = False
     http_path_segments: list[str] = field(default_factory=lambda: list(DEFAULT_PATH_SEGMENTS))
     language: str = "auto"  # "en" | "de" | "fr" | "es" | "it" | "pl" | "auto"
     update_instruction_url: str = ""  # empty = menu item hidden
@@ -105,6 +106,7 @@ def _load_config_locked(path: Path | None) -> AppConfig:
         http_login=_login,
         http_password=http.get("password", ""),
         http_use_credentials=http_use_credentials,
+        http_allow_insecure=http.get("allow_insecure", "false").lower() == "true",
         http_path_segments=path_segments,
         language=ui.get("language", "auto"),
         update_instruction_url=ui.get("instruction_url", ""),
@@ -150,6 +152,7 @@ def _save_config_locked(config: AppConfig, path: Path | None) -> None:
         "login": config.http_login,
         "password": ini_password,
         "use_credentials": str(config.http_use_credentials).lower(),
+        "allow_insecure": str(config.http_allow_insecure).lower(),
         "path_segments": ",".join(config.http_path_segments),
     }
     parser["ui"] = {

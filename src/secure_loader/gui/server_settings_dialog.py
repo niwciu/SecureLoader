@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
+    QCheckBox,
     QDialog,
     QDialogButtonBox,
     QGroupBox,
@@ -64,12 +65,18 @@ class ServerSettingsDialog(QDialog):
 
         # ---- Server URL
         url_box = QGroupBox(_("Server"))
-        url_form = QHBoxLayout(url_box)
-        url_form.addWidget(QLabel(_("Base URL")))
+        url_layout = QVBoxLayout(url_box)
+        url_row = QHBoxLayout()
+        url_row.addWidget(QLabel(_("Base URL")))
         self._url_edit = QLineEdit()
         self._url_edit.setPlaceholderText("https://example.com/firmware")
         self._url_edit.textChanged.connect(self._update_preview)
-        url_form.addWidget(self._url_edit, stretch=1)
+        url_row.addWidget(self._url_edit, stretch=1)
+        url_layout.addLayout(url_row)
+        self._allow_insecure_chk = QCheckBox(
+            _("Allow plain HTTP (insecure — use only on trusted local networks)")
+        )
+        url_layout.addWidget(self._allow_insecure_chk)
         root.addWidget(url_box)
 
         # ---- Credentials
@@ -143,6 +150,7 @@ class ServerSettingsDialog(QDialog):
 
     def _populate(self) -> None:
         self._url_edit.setText(self._config.http_base_url)
+        self._allow_insecure_chk.setChecked(self._config.http_allow_insecure)
         self._cred_box.setChecked(self._config.http_use_credentials)
         self._login_edit.setText(self._config.http_login)
         self._pwd_edit.setText(self._config.http_password)
@@ -270,6 +278,7 @@ class ServerSettingsDialog(QDialog):
 
     def _save_and_accept(self) -> None:
         self._config.http_base_url = self._url_edit.text().strip()
+        self._config.http_allow_insecure = self._allow_insecure_chk.isChecked()
         self._config.http_use_credentials = self._cred_box.isChecked()
         self._config.http_login = self._login_edit.text().strip()
         self._config.http_password = self._pwd_edit.text()

@@ -65,6 +65,7 @@ class MainWindow(QMainWindow):
 
         self._protocol_worker: ProtocolWorker | None = None
         self._protocol_thread: QThread | None = None
+        self._download_worker: DownloadWorker | None = None
         self._download_thread: QThread | None = None
 
         self._firmware_header: FirmwareHeader | None = None
@@ -646,9 +647,16 @@ class MainWindow(QMainWindow):
         self._load_firmware_into_ui(header, data)
         self._remember_recent(path)
 
-    def _load_firmware_into_ui(self, header: FirmwareHeader, data: bytes) -> None:
+    def _load_firmware_into_ui(
+        self, header: FirmwareHeader, data: bytes, *, clear_file_combo: bool = False
+    ) -> None:
         self._firmware_header = header
         self._firmware_bytes = data
+        if clear_file_combo:
+            self.input_file_box.blockSignals(True)
+            self.input_file_box.setCurrentIndex(-1)
+            self.input_file_box.clearEditText()
+            self.input_file_box.blockSignals(False)
         self.protocol_edit.setText(header.format_protocol_version())
         self.product_id_edit.setText(header.format_product_id())
         self.app_version_edit.setText(header.format_app_version())
@@ -686,7 +694,9 @@ class MainWindow(QMainWindow):
     # ---------------------------------------------------------- HTTP download
 
     def _start_fetch(self, *, previous: bool) -> None:
+        log.debug("_start_fetch: previous=%s device_info=%s", previous, self._device_info)
         if self._device_info is None:
+            log.warning("_start_fetch: aborted — device not connected")
             QMessageBox.warning(
                 self, __app_name__, _("Device must be connected before downloading.")
             )
@@ -694,37 +704,60 @@ class MainWindow(QMainWindow):
         prev_version: str | None = None
         if previous:
             if self._firmware_header is None:
+                log.warning("_start_fetch: aborted — no firmware header loaded for previous fetch")
                 QMessageBox.warning(
                     self, __app_name__, _("Previous version requires a firmware file loaded.")
                 )
                 return
             prev_version = self._firmware_header.format_prev_app_version()
 
-        source = HttpFirmwareSource(
-            base_url=self._config.http_base_url,
-            credentials=self._config.credentials(),
-            path_segments=self._config.http_path_segments,
+        log.info(
+            "_start_fetch: base_url=%r allow_insecure=%s path_segments=%s identifier: "
+            "hw=%s lic=%s uniq=%s prev_version=%s",
+            self._config.http_base_url,
+            self._config.http_allow_insecure,
+            self._config.http_path_segments,
+            self._device_info.hw_id,
+            self._device_info.license_id,
+            self._device_info.unique_id,
+            prev_version,
         )
-        identifier = FirmwareIdentifier(
-            custom_id=self._device_info.custom_id,
-            hw_id=self._device_info.hw_id,
-            license_id=self._device_info.license_id,
-            unique_id=self._device_info.unique_id,
-            app_version=prev_version,
-        )
-        self.get_firmware_button.setEnabled(False)
-        self.get_prev_firmware_button.setEnabled(False)
-        worker = DownloadWorker(source, identifier, previous=previous)
-        worker.progress.connect(self._on_http_progress)
-        worker.finished.connect(self._on_fetch_finished)
-        worker.error_occurred.connect(self._on_fetch_error)
-        self._download_thread = start_in_thread(worker, parent=self)
+        try:
+            source = HttpFirmwareSource(
+                base_url=self._config.http_base_url,
+                credentials=self._config.credentials(),
+                allow_insecure=self._config.http_allow_insecure,
+                path_segments=self._config.http_path_segments,
+            )
+            log.debug("_start_fetch: HttpFirmwareSource created")
+            identifier = FirmwareIdentifier(
+                custom_id=self._device_info.custom_id,
+                hw_id=self._device_info.hw_id,
+                license_id=self._device_info.license_id,
+                unique_id=self._device_info.unique_id,
+                app_version=prev_version,
+            )
+            log.debug("_start_fetch: FirmwareIdentifier created")
+            self.get_firmware_button.setEnabled(False)
+            self.get_prev_firmware_button.setEnabled(False)
+            worker = DownloadWorker(source, identifier, previous=previous)
+            worker.progress.connect(self._on_http_progress)
+            worker.finished.connect(self._on_fetch_finished)
+            worker.error_occurred.connect(self._on_fetch_error)
+            self._download_worker = worker  # keep strong ref — prevents GC segfault
+            log.debug("_start_fetch: starting thread")
+            self._download_thread = start_in_thread(worker, parent=self)
+            log.debug("_start_fetch: thread started, id=%s", self._download_thread)
+        except Exception:
+            log.exception("_start_fetch: unexpected exception — download not started")
+            self._update_download_button()
 
     def _on_http_progress(self, received: int, total: int) -> None:
         self.http_progress.setMaximum(max(total, 1))
         self.http_progress.setValue(received)
 
     def _on_fetch_finished(self, data: bytes, header: object) -> None:
+        self._download_worker = None
         self._update_download_button()
         if header is None:
             QMessageBox.warning(
@@ -735,7 +768,7 @@ class MainWindow(QMainWindow):
             return
         if not isinstance(header, FirmwareHeader):
             return
-        self._load_firmware_into_ui(header, data)
+        self._load_firmware_into_ui(header, data, clear_file_combo=True)
         QMessageBox.information(
             self,
             __app_name__,
@@ -743,6 +776,7 @@ class MainWindow(QMainWindow):
         )
 
     def _on_fetch_error(self, msg: str) -> None:
+        self._download_worker = None
         self.http_progress.setValue(0)
         self._update_download_button()
         QMessageBox.critical(self, _("Server connection problem"), msg)

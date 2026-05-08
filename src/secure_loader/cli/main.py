@@ -252,6 +252,7 @@ def fetch_cmd(
         base_url=effective_url,
         credentials=config.credentials(),
         allow_insecure=allow_insecure,
+        path_segments=config.http_path_segments,
     )
     identifier = FirmwareIdentifier(
         license_id=license_id,

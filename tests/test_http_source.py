@@ -14,6 +14,7 @@ from secure_loader.core.sources.http import HttpCredentials, HttpFirmwareSource
 
 def _make_response(text: str | None = None, content: bytes = b"", status: int = 200) -> MagicMock:
     r = MagicMock(spec=requests.Response)
+    r.status_code = status
     r.text = text or ""
     r.content = content
     r.headers = {"Content-Length": str(len(content))}

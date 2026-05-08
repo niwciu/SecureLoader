@@ -26,11 +26,11 @@ from secure_loader.core.protocol import (
 
 
 def _ack(cmd: Command) -> int:
-    return int(cmd) ^ int(Command.OK_MASK)
+    return int(cmd) ^ int(Command.OK)
 
 
 def _nak(cmd: Command) -> int:
-    return int(cmd) ^ int(Command.ERROR_MASK)
+    return int(cmd) ^ int(Command.ERR)
 
 
 @pytest.fixture
@@ -125,10 +125,10 @@ class TestDownloadFlow:
         assert driver.state == State.SENDING
 
         # ACK each subsequent page. 4 pages total; first is sent by the
-        # START ACK handler, so 3 more NEXT_BLOCK ACKs trigger the rest, then
+        # START ACK handler, so 3 more NEXT_PAGE ACKs trigger the rest, then
         # one final ACK with no remaining payload transitions back to CONNECTED.
         for _ in range(4):
-            driver._handle_byte(_ack(Command.NEXT_BLOCK))
+            driver._handle_byte(_ack(Command.NEXT_PAGE))
 
         assert driver.state == State.CONNECTED
         assert done_flag == [True]
@@ -157,7 +157,7 @@ class TestDownloadFlow:
         self._prime_connected(driver)
         driver.start_download(sample_firmware)
         driver._handle_byte(_ack(Command.START))  # first page sent
-        driver._handle_byte(_nak(Command.NEXT_BLOCK))  # device reports error
+        driver._handle_byte(_nak(Command.NEXT_PAGE))  # device reports error
 
         assert driver.state == State.CONNECTING
         assert driver._download_error is not None
@@ -241,10 +241,10 @@ class TestDownloadBlocking:
                 time.sleep(0.005)
             if p._stop.is_set():
                 return
-            # Simulate device ACK for START, then 4 NEXT_BLOCK ACKs.
+            # Simulate device ACK for START, then 4 NEXT_PAGE ACKs.
             p._handle_byte(_ack(Command.START))
             for _ in range(4):
-                p._handle_byte(_ack(Command.NEXT_BLOCK))
+                p._handle_byte(_ack(Command.NEXT_PAGE))
             p._stop.wait()
 
         p.run = fake_run  # type: ignore[method-assign]

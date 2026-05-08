@@ -22,6 +22,8 @@ def main(argv: list[str] | None = None) -> int:
         level=logging.WARNING,
         format="%(asctime)s %(levelname)-7s %(name)s: %(message)s",
     )
+    # Show INFO+ from our own package in the terminal without drowning in Qt noise.
+    logging.getLogger("secure_loader").setLevel(logging.DEBUG)
     config = load_config()
     set_language(config.language)
 
