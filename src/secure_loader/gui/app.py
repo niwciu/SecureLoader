@@ -18,16 +18,18 @@ log = logging.getLogger(__name__)
 
 
 def main(argv: list[str] | None = None) -> int:
+    args = argv if argv is not None else sys.argv
+    debug = "--debug" in args
     logging.basicConfig(
         level=logging.WARNING,
         format="%(asctime)s %(levelname)-7s %(name)s: %(message)s",
     )
-    # Show INFO+ from our own package in the terminal without drowning in Qt noise.
-    logging.getLogger("secure_loader").setLevel(logging.DEBUG)
+    if debug:
+        logging.getLogger("secure_loader").setLevel(logging.DEBUG)
     config = load_config()
     set_language(config.language)
 
-    app = QApplication(argv if argv is not None else sys.argv)
+    app = QApplication([a for a in args if a != "--debug"])
     app.setApplicationName(__app_name__)
     app.setApplicationVersion(__version__)
     app.setOrganizationName("niwciu")

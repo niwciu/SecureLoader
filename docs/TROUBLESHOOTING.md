@@ -102,12 +102,34 @@ separately before the application firmware can be flashed.
 
 ---
 
+### "Device does not match firmware (flash page size)"
+
+**Cause:** The `flashPageSize` reported by the bootloader does not match the
+`flashPageSize` stored in the firmware header.
+
+The bootloader transfers firmware in fixed-size pages. Both sides must agree on
+the page size: the host slices the payload into chunks of exactly that many bytes,
+and the bootloader expects chunks of that same size.
+
+**Checks:**
+- Use `sld info --file firmware.bin` and `sld info --port /dev/ttyUSB0` to compare
+  the page size values on both sides.
+- If the device reports a different value (e.g. `128`) than the firmware header
+  (e.g. `2048`), the firmware was packaged with the wrong page size. Re-run the
+  encryption/packaging tool with the correct `FLASH_PAGE_SIZE` value that matches
+  the bootloader's `bl_hw_config.h` constant.
+- If the bootloader constant is wrong, fix `FLASH_PAGE_SIZE` in the firmware source
+  and rebuild and re-flash the bootloader first.
+
+---
+
 ### Red highlighted fields in the GUI
 
-The **Protocol** / **Bootloader Version** fields turn red when there is a
-protocol version mismatch. The **Product ID** fields (both device and file)
-turn red when product IDs differ. The **Update** button is disabled until
-both checks pass.
+- **Protocol** / **Bootloader Version** — protocol version mismatch.
+- **Product ID** fields (device and file) — product ID mismatch.
+- **Page Size** fields (device and file) — flash page size mismatch.
+
+The **Update** button stays disabled until all three checks pass.
 
 ---
 
@@ -240,6 +262,8 @@ typed.
 
 ## 🔎 Getting More Information
 
+### CLI
+
 Enable verbose logging for more detail:
 
 ```bash
@@ -247,5 +271,23 @@ sld -v flash ...     # INFO level
 sld -vv flash ...    # DEBUG level (verbose output from serial and HTTP libraries)
 ```
 
-The GUI uses Python's `logging` module; logs appear in the terminal if
-`sld-gui` is launched from a terminal.
+### GUI
+
+By default `sld-gui` produces no console output. Pass `--debug` to enable
+full DEBUG-level logging from the `secure_loader` package:
+
+```bash
+sld-gui --debug
+```
+
+The debug trace includes:
+- every call to `_update_download_button` with all gate conditions (useful for diagnosing a
+  locked Update button)
+- compatibility check results with exact hex values for bootloader version, product ID, and
+  page size on both sides
+- HTTP fetch progress (URL, HTTP status, Content-Length, bytes received)
+- firmware download worker lifecycle events
+
+> **Note:** Debug logging has a measurable performance cost — the GUI polls every 500 ms and
+> writes multiple log lines per cycle. Use `--debug` only when diagnosing a problem, not
+> during normal operation.

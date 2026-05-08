@@ -369,7 +369,8 @@ Config file location:
 ## 🖥️ GUI Reference
 
 ```bash
-sld-gui
+sld-gui           # normal launch — no console output
+sld-gui --debug   # enable DEBUG-level logging to the terminal
 ```
 
 ### Window layout
@@ -381,6 +382,7 @@ graph TD
         Status["Status display"] --- Parity["Parity"]
         PID_dev["Device Product ID"] --- StopBits["Stop bits"]
         BLVer["Bootloader version"] --- ConnBtn["Connect / Disconnect"]
+        PageSize_dev["Device Page Size"]
     end
 
     subgraph Middle["Middle section — firmware"]
@@ -390,6 +392,7 @@ graph TD
         AppVer["App Version"]
         PrevVer["Previous App Version"] --- PrevBtn["Get Previous Firmware"]
         Protocol["Protocol version"]
+        PageSize_fw["Page Size (from file)"]
         Size["File size"]
     end
 
@@ -404,15 +407,15 @@ graph TD
 ### 🔄 Typical workflow
 
 1. **📂 Select firmware** — click _Select file..._ or choose a recent file from the combobox.
-   The firmware header fields (Product ID, App Version, Protocol, Size) populate automatically.
+   The firmware header fields (Product ID, App Version, Protocol, Page Size, File Size) populate automatically.
    Hovering over the combobox shows the full file path as a tooltip.
 
 2. **🔌 Connect to device** — select the correct port, baud rate, and parity, then click _Connect_.
-   The bootloader version and device Product ID appear when the device responds.
+   The bootloader version, device Product ID, and device Page Size appear when the device responds.
 
-3. **🔍 Compatibility check** — if the device Product ID or protocol version does not match the
-   firmware file, the mismatched fields are highlighted in red and the _Update_ button stays
-   disabled.
+3. **🔍 Compatibility check** — if the device Product ID, protocol version, or flash page size does
+   not match the firmware file, the mismatched fields are highlighted in red and the _Update_ button
+   stays disabled.
 
 4. **⚡ Flash** — click _Update_. The progress bar fills as pages are transferred.
    A dialog confirms completion.
@@ -430,7 +433,9 @@ After a successful download the binary is **loaded directly into the firmware fi
 
 Server connection settings are configured via **Settings → Server settings**, which opens a dialog with three sections:
 
-- **Server** — the HTTPS base URL for your firmware server.
+- **Server** — the HTTPS base URL for your firmware server. An **Allow plain HTTP** checkbox
+  is available for controlled lab environments where HTTPS is not available; leave it off for
+  any network where credentials or firmware could be intercepted.
 - **Credentials** — enable the checkbox to activate HTTP Basic Auth, then enter login and
   password. When the checkbox is off, requests are sent without authentication. The Product ID
   field layout is shown as a colour-coded hex strip so you can see exactly which bytes map to
@@ -456,6 +461,7 @@ The config file is INI format and written with `0600` permissions on Unix.
 ```ini
 [http]
 base_url        = https://example.com/update/binary
+allow_insecure  = false
 login           =
 password        =
 use_credentials = false
@@ -474,7 +480,8 @@ firmware_1 = /home/user/projects/firmware_prev.bin
 
 | Key | Description |
 |-----|-------------|
-| `base_url` | URL of the firmware HTTP server. Must start with `https://`. Plain `http://` requires `--allow-insecure`. |
+| `base_url` | URL of the firmware HTTP server. Must start with `https://`. Plain `http://` requires `allow_insecure = true`. |
+| `allow_insecure` | `true` / `false` (default `false`). Permit plain `http://` URLs. Set via **Settings → Server settings → Allow plain HTTP**. Use only on trusted local networks. |
 | `use_credentials` | `true` / `false`. When `false` (default), `login` and `password` are ignored and requests are unauthenticated. Set to `true` via **Settings → Server settings → Credentials** checkbox. |
 | `login` | HTTP Basic Auth username, used only when `use_credentials = true`. |
 | `password` | HTTP Basic Auth password. Stored in OS keychain when `[security]` extra is installed; otherwise plaintext with `0600` permissions. Use `sld config set-password` to avoid shell history exposure. |
