@@ -553,6 +553,9 @@ class MainWindow(QMainWindow):
             thread.wait(2000)
         self._is_connected = False
         self.connect_button.setText(_("Connect"))
+        self.download_progress.setRange(0, 100)
+        self.download_progress.setValue(0)
+        self.http_progress.setValue(0)
         self._clear_device_info()
 
     # -------------------------------------------------------- protocol signals
@@ -562,7 +565,7 @@ class MainWindow(QMainWindow):
             State.IDLE: _("Idle"),
             State.CONNECTING: _("Connecting"),
             State.CONNECTED: _("Connected"),
-            State.STARTING: _("Download"),
+            State.STARTING: _("Erasing..."),
             State.SENDING: _("Download"),
         }
         self.status_edit.setText(mapping.get(state, state.name))
@@ -570,7 +573,12 @@ class MainWindow(QMainWindow):
     def _on_state_changed(self, state: State) -> None:
         self._current_state = state
         self._update_status_text(state)
-        if state in (State.IDLE, State.CONNECTING):
+        if state == State.STARTING:
+            # Indeterminate bar while MCU erases flash; cleared by first _on_page_sent ACK.
+            self.download_progress.setRange(0, 0)
+        elif state in (State.IDLE, State.CONNECTING):
+            self.download_progress.setRange(0, 100)
+            self.download_progress.setValue(0)
             self._clear_device_info()
 
     def _on_device_info(self, info: DeviceInfo) -> None:
@@ -806,7 +814,6 @@ class MainWindow(QMainWindow):
     def _on_update_clicked(self) -> None:
         if self._protocol_worker is None or not self._firmware_bytes:
             return
-        self.download_progress.setValue(1)
         self._protocol_worker.start_download(self._firmware_bytes)
 
     # --------------------------------------------------------- UI state logic

@@ -180,7 +180,8 @@ sequenceDiagram
 |-----------|-------|--------|
 | `GET_VERSION` poll interval | 500 ms | `POLL_INTERVAL_S = 0.5` |
 | CONNECTED missed-poll limit | 3 polls (~1.5 s) | `CONNECTED_MISSED_POLLS = 3` |
-| Transfer alive timeout | 2 000 ms | `ALIVE_TIMEOUT_S = 2.0` |
+| Flash erase timeout (STARTING) | 30 000 ms | `ERASE_TIMEOUT_S = 30.0` |
+| Page ACK margin (SENDING) | 2 000 ms | `ALIVE_TIMEOUT_S = 2.0` |
 | Host write timeout | 2 000 ms | `Serial(write_timeout=2.0)` |
 | Host read timeout | 50 ms | `Serial(timeout=0.05)` |
 | Default `flashPageSize` fallback | 1 024 B | `DEFAULT_PAGE_SIZE = 1024` |
@@ -190,9 +191,17 @@ each time it sends `GET_VERSION` while in `CONNECTED`. The counter resets to zer
 when a `GET_VERSION` ACK arrives. If the counter reaches `CONNECTED_MISSED_POLLS`
 (3 consecutive unanswered polls, ~1.5 s), the host drops back to `CONNECTING`.
 
-**Transfer alive timeout (time-based):** while in `STARTING` or `SENDING` the host
-is not polling — it is waiting for an ACK on `START` or `NEXT_PAGE`. If no ACK
-arrives within `ALIVE_TIMEOUT_S` (2 s), the host drops back to `CONNECTING`.
+**STARTING erase timeout:** flash erase duration is unknown and can be several
+seconds. The clock starts when `START` is sent (not from the last `GET_VERSION`
+ACK). If `ERASE_TIMEOUT_S` (30 s) elapses without a `START` ACK, the host drops
+back to `CONNECTING`.
+
+**SENDING page ACK timeout (dynamic):** the host calculates the expected page
+transmission time from the baud rate and page size
+(`page_size × 10 bits / baudrate`), then adds `ALIVE_TIMEOUT_S` (2 s) as a
+write-and-response margin. This ensures the timeout scales correctly at low baud
+rates or with large pages. Example: 9600 baud, 2048-byte page → 2.13 s tx +
+2 s margin = 4.1 s total.
 
 **Write timeout:** if the device does not consume data fast enough (UART
 backpressure), `pyserial` raises an exception after 2 s and the host disconnects.

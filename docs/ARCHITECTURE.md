@@ -466,7 +466,9 @@ host sends `NEXT_PAGE` (`0x03`) + `flashPageSize` bytes, and the device ACKs.
 Line parameters: `115200 8N1` (parity configurable).
 
 Timing: `GET_VERSION` poll every 500 ms. `CONNECTED` drops to `CONNECTING` after
-3 consecutive missed polls (~1.5 s). `STARTING`/`SENDING` drop after a 2 s alive timeout.
+3 consecutive missed polls (~1.5 s). `STARTING` drops after 30 s erase timeout (clock
+starts when `START` is sent). `SENDING` drops after a dynamic timeout:
+`(page_size × 10 bits / baudrate) + 2 s margin`.
 
 ---
 

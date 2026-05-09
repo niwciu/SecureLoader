@@ -131,8 +131,13 @@ POLL_INTERVAL_S: float = 0.5
 CONNECTED_MISSED_POLLS: int = 3
 """Drop CONNECTED → CONNECTING after this many consecutive unanswered GetVersion polls (~1.5 s)."""
 
+ERASE_TIMEOUT_S: float = 30.0
+"""Max time to wait for START ACK while the device erases flash (STARTING state)."""
+
 ALIVE_TIMEOUT_S: float = 2.0
-"""Drop STARTING/SENDING → CONNECTING if no ACK arrives within this many seconds."""
+"""Margin added on top of calculated page-transmission time for SENDING ACK timeout."""
+
+_BITS_PER_BYTE: int = 10  # 8 data + 1 start + 1 stop (8N1)
 
 BAUD_RATE: int = 115200
 STOP_BITS: float = 1.0
@@ -178,6 +183,7 @@ class Protocol:
         poll_interval_s: float = POLL_INTERVAL_S,
         alive_timeout_s: float = ALIVE_TIMEOUT_S,
         connected_missed_polls: int = CONNECTED_MISSED_POLLS,
+        erase_timeout_s: float = ERASE_TIMEOUT_S,
     ) -> None:
         self._port = port
         self._parity = parity
@@ -187,6 +193,7 @@ class Protocol:
         self._poll_interval_s = poll_interval_s
         self._alive_timeout_s = alive_timeout_s
         self._connected_missed_polls = connected_missed_polls
+        self._erase_timeout_s = erase_timeout_s
 
         self._ser: Serial | None = None
         self._state: State = State.IDLE
@@ -263,13 +270,23 @@ class Protocol:
                 self._missed_polls = 0
                 self._set_state(State.CONNECTING)
 
-            # STARTING / SENDING: time-based — ACK must arrive within alive_timeout_s.
-            if (
-                self._state in (State.STARTING, State.SENDING)
-                and now - self._last_alive >= self._alive_timeout_s
-            ):
-                log.warning("alive timeout during transfer — reconnecting")
+            # STARTING: wait up to erase_timeout_s for START ACK (flash erase can be slow).
+            if self._state == State.STARTING and now - self._last_alive >= self._erase_timeout_s:
+                log.warning("erase timeout (%.0f s) — reconnecting", self._erase_timeout_s)
                 self._set_state(State.CONNECTING)
+
+            # SENDING: timeout = page transmission time at current baud rate + write margin.
+            if self._state == State.SENDING:
+                page_size = self._dev_page_size or DEFAULT_PAGE_SIZE
+                page_tx_s = (page_size * _BITS_PER_BYTE) / self._baudrate
+                sending_timeout = page_tx_s + self._alive_timeout_s
+                if now - self._last_alive >= sending_timeout:
+                    log.warning(
+                        "page ACK timeout (tx=%.2f s + margin=%.1f s) — reconnecting",
+                        page_tx_s,
+                        self._alive_timeout_s,
+                    )
+                    self._set_state(State.CONNECTING)
 
             # Periodic GetVersion poll while not in the middle of a transfer.
             if self._state in (State.IDLE, State.CONNECTING, State.CONNECTED) and now >= next_poll:
@@ -320,6 +337,9 @@ class Protocol:
             # Transition inside the lock so the driver thread cannot observe a
             # window where payload is set but state is still CONNECTED.
             self._set_state(State.STARTING)
+        # Reset the alive clock here so the erase timeout counts from when START
+        # is actually sent, not from the last GET_VERSION ACK (up to 500 ms earlier).
+        self._last_alive = time.monotonic()
         self._write_cmd(Command.START)
         self._write_raw(wire_header)
 
