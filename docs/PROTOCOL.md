@@ -52,7 +52,7 @@ delimiter.
 |------|------|---------|---------|
 | `GET_VERSION` | `0x01` | — | Request device info |
 | `START` | `0x02` | 44 B wire header | Begin firmware transfer |
-| `NEXT_BLOCK` | `0x03` | `flashPageSize` B | One payload page |
+| `NEXT_PAGE` | `0x03` | `flashPageSize` B | One payload page |
 | `RESET` | `0x04` | — | Soft-reset the device |
 | `NONE` | `0x00` | — | Reserved, unused |
 
@@ -105,14 +105,14 @@ One rule covers all commands — no translation table needed on either side.
 
 **Device responds:**
 
-- `0x42` ✅ ACK — ready for `NEXT_BLOCK`. The device has erased the required
+- `0x42` ✅ ACK — ready for `NEXT_PAGE`. The device has erased the required
   flash sectors and initialised decryption / CRC state.
 - `0x82` ❌ NAK — error (e.g. mismatched `productId`, flash erase failed,
   invalid IV). The host reports the error and returns to `CONNECTING`.
 
 ---
 
-### `NEXT_BLOCK` (`0x03`)
+### `NEXT_PAGE` (`0x03`)
 
 **Host sends:** `0x03`, then exactly `flashPageSize` bytes of the current page.
 
@@ -161,7 +161,7 @@ sequenceDiagram
     D->>H: 0x42  ACK  (flash erased, decryption ready)
 
     loop pageCount pages
-        H->>D: 0x03  NEXT_BLOCK + flashPageSize B
+        H->>D: 0x03  NEXT_PAGE + flashPageSize B
         D->>H: 0x43  ACK  (page written)
     end
 
@@ -179,16 +179,20 @@ sequenceDiagram
 | Parameter | Value | Source |
 |-----------|-------|--------|
 | `GET_VERSION` poll interval | 500 ms | `POLL_INTERVAL_S = 0.5` |
-| Alive timeout | 10 000 ms | `ALIVE_TIMEOUT_S = 10.0` |
+| CONNECTED missed-poll limit | 3 polls (~1.5 s) | `CONNECTED_MISSED_POLLS = 3` |
+| Transfer alive timeout | 2 000 ms | `ALIVE_TIMEOUT_S = 2.0` |
 | Host write timeout | 2 000 ms | `Serial(write_timeout=2.0)` |
 | Host read timeout | 50 ms | `Serial(timeout=0.05)` |
 | Default `flashPageSize` fallback | 1 024 B | `DEFAULT_PAGE_SIZE = 1024` |
 
-**Alive timeout:** if the host receives no bytes for `ALIVE_TIMEOUT_S` while
-in `CONNECTED`, `STARTING`, or `SENDING`, it drops back to `CONNECTING` and
-restarts `GET_VERSION` polling. The device must therefore respond to successive
-polls even while flash erase is in progress. If erase takes longer than 10 s,
-respond NAK to buy time or reduce the flash page size.
+**CONNECTED alive check (count-based):** the host increments a missed-poll counter
+each time it sends `GET_VERSION` while in `CONNECTED`. The counter resets to zero
+when a `GET_VERSION` ACK arrives. If the counter reaches `CONNECTED_MISSED_POLLS`
+(3 consecutive unanswered polls, ~1.5 s), the host drops back to `CONNECTING`.
+
+**Transfer alive timeout (time-based):** while in `STARTING` or `SENDING` the host
+is not polling — it is waiting for an ACK on `START` or `NEXT_PAGE`. If no ACK
+arrives within `ALIVE_TIMEOUT_S` (2 s), the host drops back to `CONNECTING`.
 
 **Write timeout:** if the device does not consume data fast enough (UART
 backpressure), `pyserial` raises an exception after 2 s and the host disconnects.
@@ -202,8 +206,9 @@ backpressure), `pyserial` raises an exception after 2 s and the host disconnects
 | Situation | Host action |
 |-----------|-------------|
 | Unknown / stray byte in stream | Ignored — framing is state-driven, no resync needed |
-| NAK on `START` or `NEXT_BLOCK` | Logs error, emits `on_error` callback, returns to `CONNECTING` |
-| Alive timeout | Returns to `CONNECTING`, restarts polling |
+| NAK on `START` or `NEXT_PAGE` | Logs error, emits `on_error` callback, returns to `CONNECTING` |
+| CONNECTED: 3 missed polls | Returns to `CONNECTING`, restarts polling |
+| STARTING/SENDING: alive timeout (2 s) | Returns to `CONNECTING`, restarts polling |
 | Serial write exception | Stops loop, reports error, disconnects |
 
 ### Device side (recommendations)
@@ -229,13 +234,13 @@ stateDiagram-v2
     CONNECTING --> CONNECTING : timeout — retry GET_VERSION poll
 
     CONNECTED --> STARTING : start_download()
-    CONNECTED --> CONNECTING : alive timeout
+    CONNECTED --> CONNECTING : 3 consecutive missed polls (~1.5 s)
 
     STARTING --> SENDING : ACK(START)
-    STARTING --> CONNECTING : NAK(START) / alive timeout
+    STARTING --> CONNECTING : NAK(START) / alive timeout (2 s)
 
     SENDING --> CONNECTED : payload exhausted (transfer done)
-    SENDING --> CONNECTING : NAK(NEXT_BLOCK) / alive timeout
+    SENDING --> CONNECTING : NAK(NEXT_PAGE) / alive timeout (2 s)
 
     CONNECTED --> IDLE : disconnect()
     STARTING --> IDLE : disconnect()
@@ -264,8 +269,8 @@ stateDiagram-v2
     READ_HEADER --> WAIT_CMD : header invalid → 0x82 NAK
     READ_HEADER --> RECEIVE_PAGES : header valid → 0x42 ACK\n(erase flash, init decryption)
 
-    RECEIVE_PAGES --> RECEIVE_PAGES : 0x03 NEXT_BLOCK ok → 0x43 ACK
-    RECEIVE_PAGES --> WAIT_CMD : 0x03 NEXT_BLOCK error → 0x83 NAK
+    RECEIVE_PAGES --> RECEIVE_PAGES : 0x03 NEXT_PAGE ok → 0x43 ACK
+    RECEIVE_PAGES --> WAIT_CMD : 0x03 NEXT_PAGE error → 0x83 NAK
 
     RECEIVE_PAGES --> VERIFY : pageCount pages received
 

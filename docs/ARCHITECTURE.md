@@ -99,7 +99,7 @@ Exposed API:
 - `State` — state enum (`IDLE`, `CONNECTING`, `CONNECTED`, `STARTING`,
   `SENDING`).
 - `Command` — protocol commands (`GET_VERSION = 0x01`, `START = 0x02`,
-  `NEXT_BLOCK = 0x03`, `RESET = 0x04`).
+  `NEXT_PAGE = 0x03`, `RESET = 0x04`).
 - `DeviceInfo` — 16-byte response from `GET_VERSION`.
 - `Parity` — parity enum, `Parity.from_label()` accepts GUI labels
   (`"None"`, `"Odd"`, `"Even"`).
@@ -113,7 +113,7 @@ stateDiagram-v2
     CONNECTING --> CONNECTED  : ACK GET_VERSION + 16 B device info
     CONNECTED  --> STARTING   : start_download()
     STARTING   --> SENDING    : ACK START
-    SENDING    --> SENDING    : ACK NEXT_BLOCK (pages remain)
+    SENDING    --> SENDING    : ACK NEXT_PAGE (pages remain)
     SENDING    --> CONNECTED  : pages exhausted
     STARTING   --> CONNECTING : NAK / alive timeout
     SENDING    --> CONNECTING : NAK / alive timeout
@@ -308,6 +308,7 @@ Structure:
 ```ini
 [http]
 base_url = 
+allow_insecure = false
 login = 
 password = 
 use_credentials = false
@@ -450,7 +451,7 @@ operations (compatibility check, device matching) the full 64-bit value is used.
 |------|-------|----------|
 | `GET_VERSION` | `0x01` | host → device |
 | `START` | `0x02` | host → device |
-| `NEXT_BLOCK` | `0x03` | host → device |
+| `NEXT_PAGE` | `0x03` | host → device |
 | `RESET` | `0x04` | host → device |
 | ACK | `cmd XOR 0x40` | device → host |
 | NAK | `cmd XOR 0x80` | device → host |
@@ -460,11 +461,12 @@ After ACK for `GET_VERSION` the device sends 16 bytes of device info
 
 The host sends `START` (`0x02`) immediately followed by the 44 B wire header
 as a single transmission. The device responds ACK/NAK. Then for each page the
-host sends `NEXT_BLOCK` (`0x03`) + `flashPageSize` bytes, and the device ACKs.
+host sends `NEXT_PAGE` (`0x03`) + `flashPageSize` bytes, and the device ACKs.
 
 Line parameters: `115200 8N1` (parity configurable).
 
-Timing: `GET_VERSION` poll every 500 ms, alive timeout 10 s.
+Timing: `GET_VERSION` poll every 500 ms. `CONNECTED` drops to `CONNECTING` after
+3 consecutive missed polls (~1.5 s). `STARTING`/`SENDING` drop after a 2 s alive timeout.
 
 ---
 

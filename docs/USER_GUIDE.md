@@ -351,6 +351,7 @@ Available keys:
 | Key | Description |
 |-----|-------------|
 | `http.base_url` | Base URL of the firmware HTTP server. |
+| `http.allow_insecure` | `true` / `false`. Allow plain `http://` URLs. Default `false`. |
 | `http.login` | HTTP server login (stored in plaintext, `0600` permissions on Unix). |
 | `http.password` | HTTP server password. |
 | `ui.language` | Display language: `auto`, `en`, `de`, `fr`, `es`, `it`, `pl`. |

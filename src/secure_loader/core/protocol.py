@@ -128,8 +128,11 @@ class DeviceInfo:
 POLL_INTERVAL_S: float = 0.5
 """Interval at which we re-send GetVersion while idle or connecting."""
 
-ALIVE_TIMEOUT_S: float = 10.0
-"""If we don't hear from the device for this long, drop back to CONNECTING."""
+CONNECTED_MISSED_POLLS: int = 3
+"""Drop CONNECTED → CONNECTING after this many consecutive unanswered GetVersion polls (~1.5 s)."""
+
+ALIVE_TIMEOUT_S: float = 2.0
+"""Drop STARTING/SENDING → CONNECTING if no ACK arrives within this many seconds."""
 
 BAUD_RATE: int = 115200
 STOP_BITS: float = 1.0
@@ -174,6 +177,7 @@ class Protocol:
         callbacks: ProtocolCallbacks | None = None,
         poll_interval_s: float = POLL_INTERVAL_S,
         alive_timeout_s: float = ALIVE_TIMEOUT_S,
+        connected_missed_polls: int = CONNECTED_MISSED_POLLS,
     ) -> None:
         self._port = port
         self._parity = parity
@@ -182,10 +186,12 @@ class Protocol:
         self._callbacks = callbacks or ProtocolCallbacks()
         self._poll_interval_s = poll_interval_s
         self._alive_timeout_s = alive_timeout_s
+        self._connected_missed_polls = connected_missed_polls
 
         self._ser: Serial | None = None
         self._state: State = State.IDLE
         self._last_alive: float = 0.0
+        self._missed_polls: int = 0
         self._pending_payload: bytes = b""
         self._pages_total: int = 0
         self._pages_sent: int = 0
@@ -251,17 +257,25 @@ class Protocol:
         while not self._stop.is_set():
             now = time.monotonic()
 
-            # Drop back to CONNECTING if the device went silent.
+            # CONNECTED: count-based — 3 consecutive unanswered polls → reconnect.
+            if self._state == State.CONNECTED and self._missed_polls >= self._connected_missed_polls:
+                log.warning("3 consecutive GetVersion polls unanswered — reconnecting")
+                self._missed_polls = 0
+                self._set_state(State.CONNECTING)
+
+            # STARTING / SENDING: time-based — ACK must arrive within alive_timeout_s.
             if (
-                self._state in (State.CONNECTED, State.STARTING, State.SENDING)
+                self._state in (State.STARTING, State.SENDING)
                 and now - self._last_alive >= self._alive_timeout_s
             ):
-                log.warning("alive timeout — reconnecting")
+                log.warning("alive timeout during transfer — reconnecting")
                 self._set_state(State.CONNECTING)
 
             # Periodic GetVersion poll while not in the middle of a transfer.
             if self._state in (State.IDLE, State.CONNECTING, State.CONNECTED) and now >= next_poll:
                 self._write_cmd(Command.GET_VERSION)
+                if self._state == State.CONNECTED:
+                    self._missed_polls += 1
                 next_poll = now + self._poll_interval_s
 
             # Read whatever the device has for us.
@@ -443,6 +457,7 @@ class Protocol:
             self._handshake_buf.clear()
             self._handshake_tail = 16
             self._last_alive = time.monotonic()
+            self._missed_polls = 0
 
     def _process_device_info(self, info: bytes) -> None:
         bl_version, product_id, page_size = _DEVICE_INFO_STRUCT.unpack(info)

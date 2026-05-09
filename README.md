@@ -355,3 +355,12 @@ Please **do not** open a public GitHub issue for security problems before contac
 ## 📄 License
 
 MIT ©
+
+<br>
+<div align="center">
+
+***
+
+![myEmbeddedWayBanerWhiteSmaller](https://github.com/user-attachments/assets/f4825882-e285-4e02-a75c-68fc86ff5716)
+***
+</div>

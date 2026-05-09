@@ -139,3 +139,12 @@ step-by-step walkthrough.
 ## 📄 License
 
 MIT — see [LICENSE](https://github.com/niwciu/SecureLoader/blob/main/LICENSE).
+
+<br>
+<div align="center">
+
+***
+
+![myEmbeddedWayBanerWhiteSmaller](https://github.com/user-attachments/assets/f4825882-e285-4e02-a75c-68fc86ff5716)
+***
+</div>
