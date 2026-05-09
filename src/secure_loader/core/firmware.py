@@ -27,9 +27,13 @@ downloader to request the previous version from a remote source.
 
 from __future__ import annotations
 
+import logging
 import struct
+import zlib
 from dataclasses import dataclass
 from pathlib import Path
+
+log = logging.getLogger(__name__)
 
 HEADER_SIZE: int = 48
 """Total size of the firmware header in bytes."""
@@ -80,22 +84,24 @@ class FirmwareHeader:
         return self.page_count * self.flash_page_size
 
     @property
-    def license_id(self) -> str:
-        """License ID derived from the product ID.
+    def custom_id(self) -> str:
+        """Custom field (bytes 0-3): characters ``[0:8]`` of the 16-hex-digit product ID."""
+        return f"{self.product_id:016X}"[0:8]
 
-        Characters ``[4:6]`` of the 16-hex-digit representation of ``productId``.
-        """
-        hex_id = f"{self.product_id:016X}"
-        return hex_id[4:6]
+    @property
+    def hw_id(self) -> str:
+        """HW ID (byte 4): characters ``[8:10]`` of the 16-hex-digit product ID."""
+        return f"{self.product_id:016X}"[8:10]
+
+    @property
+    def license_id(self) -> str:
+        """License ID (byte 5): characters ``[10:12]`` of the 16-hex-digit product ID."""
+        return f"{self.product_id:016X}"[10:12]
 
     @property
     def unique_id(self) -> str:
-        """Unique ID derived from the product ID.
-
-        Characters ``[12:16]`` of the 16-hex-digit representation of ``productId``.
-        """
-        hex_id = f"{self.product_id:016X}"
-        return hex_id[12:16]
+        """Unique ID (bytes 6-7): characters ``[12:16]`` of the 16-hex-digit product ID."""
+        return f"{self.product_id:016X}"[12:16]
 
     def format_protocol_version(self) -> str:
         return f"0x{self.protocol_version:08X}"
@@ -145,10 +151,65 @@ def parse_header(data: bytes | bytearray | memoryview) -> FirmwareHeader:
     )
 
 
+def validate_firmware(data: bytes | bytearray) -> FirmwareHeader:
+    """Parse and fully validate a firmware blob that contains an *unencrypted* payload.
+
+    Checks:
+    * Buffer is at least :data:`HEADER_SIZE` bytes (via :func:`parse_header`).
+    * Payload length matches ``page_count x flash_page_size``.
+    * CRC32 of the payload matches the value stored in the header.
+
+    .. warning::
+        Do **not** call this on EncryptBIN-produced files.  EncryptBIN computes
+        the CRC over the *plaintext* payload and then encrypts it; the file on
+        disk contains the *encrypted* payload, so the CRC will never match.
+        This function is only valid for unencrypted test blobs.
+
+    Returns the parsed :class:`FirmwareHeader` on success; raises
+    :class:`FirmwareFormatError` on any validation failure.
+    """
+    header = parse_header(data)
+    payload = data[HEADER_SIZE:]
+    expected_len = header.page_count * header.flash_page_size
+    if len(payload) < expected_len:
+        raise FirmwareFormatError(
+            f"payload too short: header declares {header.page_count} pages x "
+            f"{header.flash_page_size} B = {expected_len} B, "
+            f"but only {len(payload)} B follow the header"
+        )
+    actual_crc = zlib.crc32(payload[:expected_len]) & 0xFFFFFFFF
+    if actual_crc != header.crc32:
+        raise FirmwareFormatError(
+            f"CRC32 mismatch: header says 0x{header.crc32:08X}, "
+            f"computed 0x{actual_crc:08X} — file is corrupt or tampered"
+        )
+    return header
+
+
 def load_firmware(path: str | Path) -> tuple[FirmwareHeader, bytes]:
-    """Read a firmware file from disk, returning the parsed header and raw bytes."""
+    """Read a firmware file from disk, parse the header, and check payload length.
+
+    Raises :class:`FirmwareFormatError` if the file is too short to contain a
+    valid header or if the file does not contain the number of encrypted bytes
+    declared in the header (``page_count x flash_page_size``).
+    Raises :class:`OSError` if the file cannot be read.
+
+    CRC validation is intentionally not performed here.  The CRC stored in the
+    header is computed by EncryptBIN over the *unencrypted* payload before
+    encryption; SecureLoader only ever sees the *encrypted* form and cannot
+    reproduce that value.  CRC verification is performed by the device
+    bootloader after decryption.
+    """
     data = Path(path).read_bytes()
     header = parse_header(data)
+    payload = data[HEADER_SIZE:]
+    expected_len = header.page_count * header.flash_page_size
+    if len(payload) < expected_len:
+        raise FirmwareFormatError(
+            f"payload too short: header declares {header.page_count} pages x "
+            f"{header.flash_page_size} B = {expected_len} B, "
+            f"but only {len(payload)} B follow the header"
+        )
     return header, data
 
 
@@ -182,4 +243,12 @@ def split_pages(payload: bytes, page_size: int) -> list[bytes]:
     if page_size <= 0:
         raise ValueError("page_size must be positive")
     full = len(payload) // page_size
+    if len(payload) % page_size:
+        log.warning(
+            "split_pages: payload length %d is not a multiple of page_size %d; "
+            "trailing %d bytes will not be transmitted",
+            len(payload),
+            page_size,
+            len(payload) % page_size,
+        )
     return [payload[i * page_size : (i + 1) * page_size] for i in range(full)]

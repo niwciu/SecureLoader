@@ -135,7 +135,7 @@ dmypy.json
 # Application specific
 logs/
 *.csv
-*.txt
+# *.txt
 *.tmp
 old_logs/
 test_output.csv
@@ -146,7 +146,5 @@ test_output.csv
 .env.local
 debug.log
 PROMPT_AI_AGENT_*.md
-
-/docs
 
 .ruff_cache/

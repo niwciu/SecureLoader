@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 from PySide6.QtCore import Qt, QThread, QUrl
 from PySide6.QtGui import QAction, QActionGroup, QCloseEvent, QDesktopServices, QIcon, QPixmap
@@ -42,11 +41,8 @@ from ..core.sources import FirmwareIdentifier
 from ..core.sources.http import HttpFirmwareSource
 from ..core.updater import check_device_matches_firmware
 from ..i18n import _, get_language, set_language
-from .login_dialog import LoginDialog
+from .server_settings_dialog import ServerSettingsDialog
 from .workers import DownloadWorker, ProtocolWorker, read_firmware_file, start_in_thread
-
-if TYPE_CHECKING:
-    pass
 
 log = logging.getLogger(__name__)
 
@@ -69,6 +65,7 @@ class MainWindow(QMainWindow):
 
         self._protocol_worker: ProtocolWorker | None = None
         self._protocol_thread: QThread | None = None
+        self._download_worker: DownloadWorker | None = None
         self._download_thread: QThread | None = None
 
         self._firmware_header: FirmwareHeader | None = None
@@ -184,15 +181,22 @@ class MainWindow(QMainWindow):
         btn_layout.addWidget(self.refresh_button)
         grid.addLayout(btn_layout, 3, 3)
 
-        # ----- Row 4: separator
+        # ----- Row 4: Device Page Size
+        self._lbl_dev_page_size = QLabel(_("Page Size"))
+        grid.addWidget(self._lbl_dev_page_size, 4, 0)
+        self.dev_page_size_edit = QLineEdit()
+        self.dev_page_size_edit.setEnabled(False)
+        grid.addWidget(self.dev_page_size_edit, 4, 1)
+
+        # ----- Row 5: separator
         line = QFrame()
         line.setFrameShape(QFrame.Shape.HLine)
         line.setFrameShadow(QFrame.Shadow.Sunken)
-        grid.addWidget(line, 4, 0, 1, 4)
+        grid.addWidget(line, 5, 0, 1, 4)
 
-        # ----- Row 5: Firmware file selector
+        # ----- Row 6: Firmware file selector
         self._lbl_firmware_file = QLabel(_("Firmware file"))
-        grid.addWidget(self._lbl_firmware_file, 5, 0)
+        grid.addWidget(self._lbl_firmware_file, 6, 0)
         self.input_file_box = QComboBox()
         self.input_file_box.setEditable(True)
         # currentTextChanged handles paths typed directly into the line edit.
@@ -207,45 +211,45 @@ class MainWindow(QMainWindow):
         for p in self._config.last_firmware_paths:
             self._add_file_combo_item(p)
         self.input_file_box.blockSignals(False)
-        grid.addWidget(self.input_file_box, 5, 1)
+        grid.addWidget(self.input_file_box, 6, 1)
         self.input_file_button = QPushButton(_("Select file..."))
         self.input_file_button.clicked.connect(self._on_select_file_clicked)
-        grid.addWidget(self.input_file_button, 5, 3)
+        grid.addWidget(self.input_file_button, 6, 3)
 
-        # ----- Row 6: HTTP download progress | "Fetch from server"
+        # ----- Row 7: HTTP download progress | "Fetch from server"
         self._lbl_firmware_dl = QLabel(_("Firmware download"))
-        grid.addWidget(self._lbl_firmware_dl, 6, 0)
+        grid.addWidget(self._lbl_firmware_dl, 7, 0)
         self.http_progress = QProgressBar()
-        grid.addWidget(self.http_progress, 6, 1)
+        grid.addWidget(self.http_progress, 7, 1)
         self.get_firmware_button = QPushButton(_("Fetch from server"))
         self.get_firmware_button.clicked.connect(lambda: self._start_fetch(previous=False))
         self.get_firmware_button.setEnabled(False)
-        grid.addWidget(self.get_firmware_button, 6, 3)
+        grid.addWidget(self.get_firmware_button, 7, 3)
 
-        # ----- Row 7: Product ID (from file)
+        # ----- Row 8: Product ID (from file)
         self._lbl_product_id = QLabel(_("Product ID"))
-        grid.addWidget(self._lbl_product_id, 7, 0)
+        grid.addWidget(self._lbl_product_id, 8, 0)
         self.product_id_edit = QLineEdit()
         self.product_id_edit.setEnabled(False)
-        grid.addWidget(self.product_id_edit, 7, 1)
+        grid.addWidget(self.product_id_edit, 8, 1)
 
-        # ----- Row 8: App Version
+        # ----- Row 9: App Version
         self._lbl_app_version = QLabel(_("App Version"))
-        grid.addWidget(self._lbl_app_version, 8, 0)
+        grid.addWidget(self._lbl_app_version, 9, 0)
         self.app_version_edit = QLineEdit()
         self.app_version_edit.setEnabled(False)
-        grid.addWidget(self.app_version_edit, 8, 1)
+        grid.addWidget(self.app_version_edit, 9, 1)
 
-        # ----- Row 9: Previous App Version + "Get Previous Firmware"
+        # ----- Row 10: Previous App Version + "Get Previous Firmware"
         self._lbl_prev_app_version = QLabel(_("Previous App Ver."))
-        grid.addWidget(self._lbl_prev_app_version, 9, 0)
+        grid.addWidget(self._lbl_prev_app_version, 10, 0)
         self.prev_app_version_edit = QLineEdit()
         self.prev_app_version_edit.setEnabled(False)
-        grid.addWidget(self.prev_app_version_edit, 9, 1)
+        grid.addWidget(self.prev_app_version_edit, 10, 1)
         self.get_prev_firmware_button = QPushButton(_("Get Previous Firmware"))
         self.get_prev_firmware_button.clicked.connect(lambda: self._start_fetch(previous=True))
         self.get_prev_firmware_button.setEnabled(False)
-        grid.addWidget(self.get_prev_firmware_button, 9, 3)
+        grid.addWidget(self.get_prev_firmware_button, 10, 3)
 
         # ----- Row 11: Protocol
         self._lbl_protocol = QLabel(_("Protocol"))
@@ -254,32 +258,39 @@ class MainWindow(QMainWindow):
         self.protocol_edit.setEnabled(False)
         grid.addWidget(self.protocol_edit, 11, 1)
 
-        # ----- Row 12: File size | Update button
+        # ----- Row 12: Page Size (from file)
+        self._lbl_page_size = QLabel(_("Page Size"))
+        grid.addWidget(self._lbl_page_size, 12, 0)
+        self.page_size_edit = QLineEdit()
+        self.page_size_edit.setEnabled(False)
+        grid.addWidget(self.page_size_edit, 12, 1)
+
+        # ----- Row 13: File size | Update button
         self._lbl_file_size = QLabel(_("File Size"))
-        grid.addWidget(self._lbl_file_size, 12, 0)
+        grid.addWidget(self._lbl_file_size, 13, 0)
         self.size_edit = QLineEdit()
         self.size_edit.setEnabled(False)
-        grid.addWidget(self.size_edit, 12, 1)
+        grid.addWidget(self.size_edit, 13, 1)
         self.download_button = QPushButton(_("Update"))
         self.download_button.setEnabled(False)
         self.download_button.setMinimumHeight(56)
         self.download_button.clicked.connect(self._on_update_clicked)
-        grid.addWidget(self.download_button, 12, 3, 2, 1)
+        grid.addWidget(self.download_button, 13, 3, 2, 1)
 
-        # ----- Row 13: Update progress
+        # ----- Row 14: Update progress
         self._lbl_update_progress = QLabel(_("Update progress"))
-        grid.addWidget(self._lbl_update_progress, 13, 0)
+        grid.addWidget(self._lbl_update_progress, 14, 0)
         self.download_progress = QProgressBar()
-        grid.addWidget(self.download_progress, 13, 1)
+        grid.addWidget(self.download_progress, 14, 1)
 
-        # ----- Row 14: separator before transfer section
+        # ----- Row 15: separator before transfer section
         line2 = QFrame()
         line2.setFrameShape(QFrame.Shape.HLine)
         line2.setFrameShadow(QFrame.Shadow.Sunken)
-        grid.addWidget(line2, 14, 0, 1, 4)
+        grid.addWidget(line2, 15, 0, 1, 4)
 
         # ----- Trailing vertical spacer
-        grid.setRowStretch(19, 1)
+        grid.setRowStretch(18, 1)
 
         self.statusBar()
 
@@ -318,10 +329,10 @@ class MainWindow(QMainWindow):
             self._menu_lang.addAction(act)
             self._lang_actions[code] = act
 
-        self._menu_cred = self.menuBar().addMenu(_("Credentials"))
-        self._act_login = QAction(_("Set login and password"), self)
-        self._act_login.triggered.connect(self._open_login_dialog)
-        self._menu_cred.addAction(self._act_login)
+        self._menu_settings = self.menuBar().addMenu(_("Settings"))
+        self._act_server_settings = QAction(_("Server settings..."), self)
+        self._act_server_settings.triggered.connect(self._open_server_settings)
+        self._menu_settings.addAction(self._act_server_settings)
 
     def _show_about(self) -> None:
         dlg = QDialog(self)
@@ -361,14 +372,17 @@ class MainWindow(QMainWindow):
         name_lbl.setOpenExternalLinks(True)
         right.addWidget(name_lbl)
 
-        creator_url = "https://github.com/niwciu/EncryptBIN"
+        encrypt_url = "https://github.com/niwciu/EncryptBIN"
+        bootloader_url = "https://github.com/niwciu/SECURE_BOOTLOADER"
         desc_lbl = QLabel(
             f"Flashes encrypted <code>.bin</code> firmware to embedded devices "
             f"over a serial connection.<br><br>"
             f"Firmware files are created with "
-            f'<a href="{creator_url}"><b>EncryptBIN</b></a> — '
-            f"a companion tool that produces AES&#8209;128&nbsp;CBC encrypted binaries "
-            f"compatible with Tiny&#8209;AES&#8209;C bootloaders."
+            f'<a href="{encrypt_url}"><b>EncryptBIN</b></a> — '
+            f"a companion tool that produces AES&#8209;128&nbsp;CBC encrypted binaries. "
+            f"The target device must run "
+            f'<a href="{bootloader_url}"><b>SecureBootloader</b></a> — '
+            f"a compatible embedded bootloader that accepts this protocol."
         )
         desc_lbl.setWordWrap(True)
         desc_lbl.setOpenExternalLinks(True)
@@ -398,6 +412,8 @@ class MainWindow(QMainWindow):
         _row("Author", "niwciu", 1)
         _row("GitHub", "github.com/niwciu", 2, "https://github.com/niwciu")
         _row("Email", "niwciu@gmail.com", 3, "mailto:niwciu@gmail.com")
+        _row("Bootloader", "SECURE_BOOTLOADER", 4, "https://github.com/niwciu/SECURE_BOOTLOADER")
+        _row("Firmware tool", "EncryptBIN", 5, "https://github.com/niwciu/EncryptBIN")
 
         right.addLayout(meta_grid)
         right.addStretch()
@@ -411,8 +427,8 @@ class MainWindow(QMainWindow):
         dlg.adjustSize()
         dlg.exec()
 
-    def _open_login_dialog(self) -> None:
-        dialog = LoginDialog(self._config, parent=self)
+    def _open_server_settings(self) -> None:
+        dialog = ServerSettingsDialog(self._config, parent=self)
         dialog.exec()
 
     # ------------------------------------------------------ language switching
@@ -434,12 +450,14 @@ class MainWindow(QMainWindow):
         self._lbl_dev_product_id.setText(_("Product ID"))
         self._lbl_stopbits.setText(_("Stop bits"))
         self._lbl_bootloader.setText(_("Bootloader Version"))
+        self._lbl_dev_page_size.setText(_("Page Size"))
         self._lbl_firmware_file.setText(_("Firmware file"))
         self._lbl_firmware_dl.setText(_("Firmware download"))
         self._lbl_product_id.setText(_("Product ID"))
         self._lbl_app_version.setText(_("App Version"))
         self._lbl_prev_app_version.setText(_("Previous App Ver."))
         self._lbl_protocol.setText(_("Protocol"))
+        self._lbl_page_size.setText(_("Page Size"))
         self._lbl_file_size.setText(_("File Size"))
         self._lbl_update_progress.setText(_("Update progress"))
         # Buttons
@@ -452,12 +470,12 @@ class MainWindow(QMainWindow):
         # Menus
         self._menu_help.setTitle(_("&Help"))
         self._menu_lang.setTitle(_("Language"))
-        self._menu_cred.setTitle(_("Credentials"))
+        self._menu_settings.setTitle(_("Settings"))
         # Menu actions
         self._act_instr.setText(_("Update instruction..."))
         self._act_about.setText(_("&About..."))
         self._act_version.setText(_("Version info"))
-        self._act_login.setText(_("Set login and password"))
+        self._act_server_settings.setText(_("Server settings..."))
         # Re-apply current status text
         self._update_status_text(self._current_state)
 
@@ -521,10 +539,23 @@ class MainWindow(QMainWindow):
         self.connect_button.setText(_("Disconnect"))
 
     def _disconnect_serial(self) -> None:
-        if self._protocol_worker is not None:
-            self._protocol_worker.stop()
+        worker = self._protocol_worker
+        thread = self._protocol_thread
+        self._protocol_worker = None
+        self._protocol_thread = None
+        if worker is not None:
+            worker.stop()
+        if thread is not None:
+            # wait() ensures thread T processes its DeferredDelete (C++ worker
+            # deletion + shiboken invalidation) before Python's __del__ fires on
+            # the local `worker` reference, preventing a use-after-free bus error.
+            thread.quit()
+            thread.wait(2000)
         self._is_connected = False
         self.connect_button.setText(_("Connect"))
+        self.download_progress.setRange(0, 100)
+        self.download_progress.setValue(0)
+        self.http_progress.setValue(0)
         self._clear_device_info()
 
     # -------------------------------------------------------- protocol signals
@@ -534,7 +565,7 @@ class MainWindow(QMainWindow):
             State.IDLE: _("Idle"),
             State.CONNECTING: _("Connecting"),
             State.CONNECTED: _("Connected"),
-            State.STARTING: _("Download"),
+            State.STARTING: _("Erasing..."),
             State.SENDING: _("Download"),
         }
         self.status_edit.setText(mapping.get(state, state.name))
@@ -542,13 +573,19 @@ class MainWindow(QMainWindow):
     def _on_state_changed(self, state: State) -> None:
         self._current_state = state
         self._update_status_text(state)
-        if state in (State.IDLE, State.CONNECTING):
+        if state == State.STARTING:
+            # Indeterminate bar while MCU erases flash; cleared by first _on_page_sent ACK.
+            self.download_progress.setRange(0, 0)
+        elif state in (State.IDLE, State.CONNECTING):
+            self.download_progress.setRange(0, 100)
+            self.download_progress.setValue(0)
             self._clear_device_info()
 
     def _on_device_info(self, info: DeviceInfo) -> None:
         self._device_info = info
         self.dev_product_id_edit.setText(info.format_product_id())
         self.bootloader_edit.setText(info.format_bootloader_version())
+        self.dev_page_size_edit.setText(str(info.flash_page_size))
         self._refresh_compatibility_indicator()
         self._update_download_button()
 
@@ -635,13 +672,21 @@ class MainWindow(QMainWindow):
         self._load_firmware_into_ui(header, data)
         self._remember_recent(path)
 
-    def _load_firmware_into_ui(self, header: FirmwareHeader, data: bytes) -> None:
+    def _load_firmware_into_ui(
+        self, header: FirmwareHeader, data: bytes, *, clear_file_combo: bool = False
+    ) -> None:
         self._firmware_header = header
         self._firmware_bytes = data
+        if clear_file_combo:
+            self.input_file_box.blockSignals(True)
+            self.input_file_box.setCurrentIndex(-1)
+            self.input_file_box.clearEditText()
+            self.input_file_box.blockSignals(False)
         self.protocol_edit.setText(header.format_protocol_version())
         self.product_id_edit.setText(header.format_product_id())
         self.app_version_edit.setText(header.format_app_version())
         self.prev_app_version_edit.setText(header.format_prev_app_version())
+        self.page_size_edit.setText(str(header.flash_page_size))
         self.size_edit.setText(str(header.payload_size))
         self._refresh_compatibility_indicator()
         self._update_download_button()
@@ -654,6 +699,7 @@ class MainWindow(QMainWindow):
             self.product_id_edit,
             self.app_version_edit,
             self.prev_app_version_edit,
+            self.page_size_edit,
             self.size_edit,
         ):
             edit.setText("")
@@ -664,6 +710,7 @@ class MainWindow(QMainWindow):
         self._device_info = None
         self.dev_product_id_edit.setText("")
         self.bootloader_edit.setText("")
+        self.dev_page_size_edit.setText("")
         self._refresh_compatibility_indicator()
         self._update_download_button()
 
@@ -675,40 +722,71 @@ class MainWindow(QMainWindow):
     # ---------------------------------------------------------- HTTP download
 
     def _start_fetch(self, *, previous: bool) -> None:
+        log.debug("_start_fetch: previous=%s device_info=%s", previous, self._device_info)
         if self._device_info is None:
+            log.warning("_start_fetch: aborted — device not connected")
             QMessageBox.warning(
                 self, __app_name__, _("Device must be connected before downloading.")
             )
             return
-        license_id = self._device_info.format_product_id()[6:8]
-        unique_id = self._device_info.format_product_id()[14:18]
         prev_version: str | None = None
         if previous:
             if self._firmware_header is None:
+                log.warning("_start_fetch: aborted — no firmware header loaded for previous fetch")
                 QMessageBox.warning(
                     self, __app_name__, _("Previous version requires a firmware file loaded.")
                 )
                 return
             prev_version = self._firmware_header.format_prev_app_version()
 
-        source = HttpFirmwareSource(
-            base_url=self._config.http_base_url,
-            credentials=self._config.credentials(),
+        log.info(
+            "_start_fetch: base_url=%r allow_insecure=%s path_segments=%s identifier: "
+            "hw=%s lic=%s uniq=%s prev_version=%s",
+            self._config.http_base_url,
+            self._config.http_allow_insecure,
+            self._config.http_path_segments,
+            self._device_info.hw_id,
+            self._device_info.license_id,
+            self._device_info.unique_id,
+            prev_version,
         )
-        identifier = FirmwareIdentifier(
-            license_id=license_id, unique_id=unique_id, app_version=prev_version
-        )
-        worker = DownloadWorker(source, identifier, previous=previous)
-        worker.progress.connect(self._on_http_progress)
-        worker.finished.connect(self._on_fetch_finished)
-        worker.error_occurred.connect(self._on_fetch_error)
-        self._download_thread = start_in_thread(worker, parent=self)
+        try:
+            source = HttpFirmwareSource(
+                base_url=self._config.http_base_url,
+                credentials=self._config.credentials(),
+                allow_insecure=self._config.http_allow_insecure,
+                path_segments=self._config.http_path_segments,
+            )
+            log.debug("_start_fetch: HttpFirmwareSource created")
+            identifier = FirmwareIdentifier(
+                custom_id=self._device_info.custom_id,
+                hw_id=self._device_info.hw_id,
+                license_id=self._device_info.license_id,
+                unique_id=self._device_info.unique_id,
+                app_version=prev_version,
+            )
+            log.debug("_start_fetch: FirmwareIdentifier created")
+            self.get_firmware_button.setEnabled(False)
+            self.get_prev_firmware_button.setEnabled(False)
+            worker = DownloadWorker(source, identifier, previous=previous)
+            worker.progress.connect(self._on_http_progress)
+            worker.finished.connect(self._on_fetch_finished)
+            worker.error_occurred.connect(self._on_fetch_error)
+            self._download_worker = worker  # keep strong ref — prevents GC segfault
+            log.debug("_start_fetch: starting thread")
+            self._download_thread = start_in_thread(worker, parent=self)
+            log.debug("_start_fetch: thread started, id=%s", self._download_thread)
+        except Exception:
+            log.exception("_start_fetch: unexpected exception — download not started")
+            self._update_download_button()
 
     def _on_http_progress(self, received: int, total: int) -> None:
         self.http_progress.setMaximum(max(total, 1))
         self.http_progress.setValue(received)
 
     def _on_fetch_finished(self, data: bytes, header: object) -> None:
+        self._download_worker = None
+        self._update_download_button()
         if header is None:
             QMessageBox.warning(
                 self,
@@ -718,7 +796,7 @@ class MainWindow(QMainWindow):
             return
         if not isinstance(header, FirmwareHeader):
             return
-        self._load_firmware_into_ui(header, data)
+        self._load_firmware_into_ui(header, data, clear_file_combo=True)
         QMessageBox.information(
             self,
             __app_name__,
@@ -726,8 +804,9 @@ class MainWindow(QMainWindow):
         )
 
     def _on_fetch_error(self, msg: str) -> None:
+        self._download_worker = None
         self.http_progress.setValue(0)
-        self._clear_firmware_info()
+        self._update_download_button()
         QMessageBox.critical(self, _("Server connection problem"), msg)
 
     # -------------------------------------------------------------- update
@@ -735,36 +814,75 @@ class MainWindow(QMainWindow):
     def _on_update_clicked(self) -> None:
         if self._protocol_worker is None or not self._firmware_bytes:
             return
-        self.download_progress.setValue(1)
         self._protocol_worker.start_download(self._firmware_bytes)
 
     # --------------------------------------------------------- UI state logic
 
     def _refresh_compatibility_indicator(self) -> None:
         has_both = self._device_info is not None and self._firmware_header is not None
+        log.debug(
+            "_refresh_compat: has_device=%s has_firmware=%s",
+            self._device_info is not None,
+            self._firmware_header is not None,
+        )
         ok = True
         if has_both:
             reason = check_device_matches_firmware(
                 self._device_info, self._firmware_header  # type: ignore[arg-type]
             )
             ok = not bool(reason)
+            log.debug(
+                "_refresh_compat: device bl_version=0x%08X  firmware protocol_version=0x%08X  match=%s",
+                self._device_info.bootloader_version,  # type: ignore[union-attr]
+                self._firmware_header.protocol_version,  # type: ignore[union-attr]
+                not reason.bootloader_mismatch,
+            )
+            log.debug(
+                "_refresh_compat: device product_id=0x%016X  firmware product_id=0x%016X  match=%s",
+                self._device_info.product_id,  # type: ignore[union-attr]
+                self._firmware_header.product_id,  # type: ignore[union-attr]
+                not reason.product_mismatch,
+            )
+            log.debug(
+                "_refresh_compat: device page_size=%d  firmware page_size=%d  match=%s",
+                self._device_info.flash_page_size,  # type: ignore[union-attr]
+                self._firmware_header.flash_page_size,  # type: ignore[union-attr]
+                not reason.page_size_mismatch,
+            )
+            if reason:
+                log.warning("_refresh_compat: MISMATCH — %s", reason.describe())
             self.protocol_edit.setStyleSheet(ERROR_STYLE if reason.bootloader_mismatch else "")
             self.bootloader_edit.setStyleSheet(ERROR_STYLE if reason.bootloader_mismatch else "")
             self.product_id_edit.setStyleSheet(ERROR_STYLE if reason.product_mismatch else "")
             self.dev_product_id_edit.setStyleSheet(ERROR_STYLE if reason.product_mismatch else "")
+            self.page_size_edit.setStyleSheet(ERROR_STYLE if reason.page_size_mismatch else "")
+            self.dev_page_size_edit.setStyleSheet(ERROR_STYLE if reason.page_size_mismatch else "")
         else:
             for e in (
                 self.protocol_edit,
                 self.bootloader_edit,
                 self.product_id_edit,
                 self.dev_product_id_edit,
+                self.page_size_edit,
+                self.dev_page_size_edit,
             ):
                 e.setStyleSheet("")
         self._compat_ok = ok and has_both
 
     def _update_download_button(self) -> None:
         compat_ok = self._compat_ok
-        self.download_button.setEnabled(compat_ok and bool(self._firmware_bytes))
+        has_firmware = bool(self._firmware_bytes)
+        enabled = compat_ok and has_firmware
+        log.debug(
+            "_update_download_button: enabled=%s  compat_ok=%s  has_firmware=%s  "
+            "has_device_info=%s  has_firmware_header=%s",
+            enabled,
+            compat_ok,
+            has_firmware,
+            self._device_info is not None,
+            self._firmware_header is not None,
+        )
+        self.download_button.setEnabled(enabled)
         self.get_firmware_button.setEnabled(self._device_info is not None)
         self.get_prev_firmware_button.setEnabled(
             self._firmware_header is not None and self._device_info is not None

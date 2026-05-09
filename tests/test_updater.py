@@ -42,3 +42,26 @@ class TestCompatibility:
         assert reason
         assert reason.bootloader_mismatch
         assert "bootloader" in reason.describe()
+
+    def test_page_size_mismatch_is_flagged(self, sample_firmware: bytes) -> None:
+        header = parse_header(sample_firmware)
+        device = DeviceInfo(
+            bootloader_version=header.protocol_version,
+            product_id=header.product_id,
+            flash_page_size=header.flash_page_size * 2,
+        )
+        reason = check_device_matches_firmware(device, header)
+        assert reason
+        assert reason.page_size_mismatch
+        assert "flash page size" in reason.describe()
+
+    def test_zero_page_size_not_flagged(self, sample_firmware: bytes) -> None:
+        """A zero page_size means the device hasn't reported its page size yet."""
+        header = parse_header(sample_firmware)
+        device = DeviceInfo(
+            bootloader_version=header.protocol_version,
+            product_id=header.product_id,
+            flash_page_size=0,
+        )
+        reason = check_device_matches_firmware(device, header)
+        assert not reason.page_size_mismatch

@@ -5,7 +5,7 @@ Wire protocol (1-byte command framing, little-endian payloads):
     Host → Device:
         GetVersion (0x01)            — poll the bootloader
         Start      (0x02) + header   — begin a firmware transfer
-        NextBlock  (0x03) + page     — transmit one page of payload
+        NextPage   (0x03) + page     — transmit one page of payload
         Reset      (0x04)            — soft-reset the device
 
     Device → Host:
@@ -49,11 +49,11 @@ class Command(enum.IntEnum):
     NONE = 0x00
     GET_VERSION = 0x01
     START = 0x02
-    NEXT_BLOCK = 0x03
+    NEXT_PAGE = 0x03
     RESET = 0x04  # reserved — not yet issued by the host driver
 
-    OK_MASK = 0x40
-    ERROR_MASK = 0x80
+    OK = 0x40
+    ERR = 0x80
 
 
 class State(enum.Enum):
@@ -98,6 +98,26 @@ class DeviceInfo:
     product_id: int
     flash_page_size: int
 
+    @property
+    def custom_id(self) -> str:
+        """Custom field (bytes 0-3): characters ``[0:8]`` of the 16-hex-digit product ID."""
+        return f"{self.product_id:016X}"[0:8]
+
+    @property
+    def hw_id(self) -> str:
+        """HW ID (byte 4): characters ``[8:10]`` of the 16-hex-digit product ID."""
+        return f"{self.product_id:016X}"[8:10]
+
+    @property
+    def license_id(self) -> str:
+        """License ID (byte 5): characters ``[10:12]`` of the 16-hex-digit product ID."""
+        return f"{self.product_id:016X}"[10:12]
+
+    @property
+    def unique_id(self) -> str:
+        """Unique ID (bytes 6-7): characters ``[12:16]`` of the 16-hex-digit product ID."""
+        return f"{self.product_id:016X}"[12:16]
+
     def format_bootloader_version(self) -> str:
         return f"0x{self.bootloader_version:08X}"
 
@@ -108,8 +128,16 @@ class DeviceInfo:
 POLL_INTERVAL_S: float = 0.5
 """Interval at which we re-send GetVersion while idle or connecting."""
 
-ALIVE_TIMEOUT_S: float = 10.0
-"""If we don't hear from the device for this long, drop back to CONNECTING."""
+CONNECTED_MISSED_POLLS: int = 3
+"""Drop CONNECTED → CONNECTING after this many consecutive unanswered GetVersion polls (~1.5 s)."""
+
+ERASE_TIMEOUT_S: float = 30.0
+"""Max time to wait for START ACK while the device erases flash (STARTING state)."""
+
+ALIVE_TIMEOUT_S: float = 2.0
+"""Margin added on top of calculated page-transmission time for SENDING ACK timeout."""
+
+_BITS_PER_BYTE: int = 10  # 8 data + 1 start + 1 stop (8N1)
 
 BAUD_RATE: int = 115200
 STOP_BITS: float = 1.0
@@ -119,11 +147,11 @@ assert _DEVICE_INFO_STRUCT.size == 16
 
 
 def _ack(cmd: Command) -> int:
-    return int(cmd) ^ int(Command.OK_MASK)
+    return int(cmd) ^ int(Command.OK)
 
 
 def _nak(cmd: Command) -> int:
-    return int(cmd) ^ int(Command.ERROR_MASK)
+    return int(cmd) ^ int(Command.ERR)
 
 
 @dataclass
@@ -154,6 +182,8 @@ class Protocol:
         callbacks: ProtocolCallbacks | None = None,
         poll_interval_s: float = POLL_INTERVAL_S,
         alive_timeout_s: float = ALIVE_TIMEOUT_S,
+        connected_missed_polls: int = CONNECTED_MISSED_POLLS,
+        erase_timeout_s: float = ERASE_TIMEOUT_S,
     ) -> None:
         self._port = port
         self._parity = parity
@@ -162,16 +192,21 @@ class Protocol:
         self._callbacks = callbacks or ProtocolCallbacks()
         self._poll_interval_s = poll_interval_s
         self._alive_timeout_s = alive_timeout_s
+        self._connected_missed_polls = connected_missed_polls
+        self._erase_timeout_s = erase_timeout_s
 
         self._ser: Serial | None = None
         self._state: State = State.IDLE
         self._last_alive: float = 0.0
+        self._missed_polls: int = 0
         self._pending_payload: bytes = b""
         self._pages_total: int = 0
         self._pages_sent: int = 0
         self._stop = threading.Event()
+        self._connected_event = threading.Event()
         self._download_complete = threading.Event()
         self._download_error: str | None = None
+        self._download_lock = threading.Lock()
         self._dev_page_size: int = 0
         self._handshake_buf: bytearray = bytearray()
         self._handshake_tail: int = 0
@@ -183,7 +218,7 @@ class Protocol:
         return self._state
 
     def connect(self) -> None:
-        """Open the serial port. Does not yet poll the device."""
+        """Open the serial port and flush stale RX data. Does not yet poll the device."""
         if self._ser is not None:
             return
         try:
@@ -198,6 +233,7 @@ class Protocol:
             )
         except SerialException as e:
             raise ProtocolError(f"cannot open {self._port}: {e}") from e
+        self._ser.reset_input_buffer()
         self._set_state(State.CONNECTING)
 
     def disconnect(self) -> None:
@@ -228,17 +264,38 @@ class Protocol:
         while not self._stop.is_set():
             now = time.monotonic()
 
-            # Drop back to CONNECTING if the device went silent.
+            # CONNECTED: count-based — 3 consecutive unanswered polls → reconnect.
             if (
-                self._state in (State.CONNECTED, State.STARTING, State.SENDING)
-                and now - self._last_alive >= self._alive_timeout_s
+                self._state == State.CONNECTED
+                and self._missed_polls >= self._connected_missed_polls
             ):
-                log.warning("alive timeout — reconnecting")
+                log.warning("3 consecutive GetVersion polls unanswered — reconnecting")
+                self._missed_polls = 0
                 self._set_state(State.CONNECTING)
+
+            # STARTING: wait up to erase_timeout_s for START ACK (flash erase can be slow).
+            if self._state == State.STARTING and now - self._last_alive >= self._erase_timeout_s:
+                log.warning("erase timeout (%.0f s) — reconnecting", self._erase_timeout_s)
+                self._set_state(State.CONNECTING)
+
+            # SENDING: timeout = page transmission time at current baud rate + write margin.
+            if self._state == State.SENDING:
+                page_size = self._dev_page_size or DEFAULT_PAGE_SIZE
+                page_tx_s = (page_size * _BITS_PER_BYTE) / self._baudrate
+                sending_timeout = page_tx_s + self._alive_timeout_s
+                if now - self._last_alive >= sending_timeout:
+                    log.warning(
+                        "page ACK timeout (tx=%.2f s + margin=%.1f s) — reconnecting",
+                        page_tx_s,
+                        self._alive_timeout_s,
+                    )
+                    self._set_state(State.CONNECTING)
 
             # Periodic GetVersion poll while not in the middle of a transfer.
             if self._state in (State.IDLE, State.CONNECTING, State.CONNECTED) and now >= next_poll:
                 self._write_cmd(Command.GET_VERSION)
+                if self._state == State.CONNECTED:
+                    self._missed_polls += 1
                 next_poll = now + self._poll_interval_s
 
             # Read whatever the device has for us.
@@ -258,8 +315,6 @@ class Protocol:
         :meth:`wait_for_download` or the higher-level
         :meth:`download_blocking`.
         """
-        if self._state != State.CONNECTED:
-            raise ProtocolError(f"can't start download from state {self._state.name}")
         wire_header = build_device_header(firmware)
         if len(wire_header) != DEVICE_HEADER_SIZE:
             raise ProtocolError(
@@ -274,13 +329,20 @@ class Protocol:
         #   [48:]    encrypted pages
         payload = firmware[HEADER_SIZE:]
         pages = split_pages(payload, page_size)
-        self._pending_payload = payload
-        self._pages_total = len(pages)
-        self._pages_sent = 0
-        self._download_complete.clear()
-        self._download_error = None
-
-        self._set_state(State.STARTING)
+        with self._download_lock:
+            if self._state != State.CONNECTED:
+                raise ProtocolError(f"can't start download from state {self._state.name}")
+            self._pending_payload = payload
+            self._pages_total = len(pages)
+            self._pages_sent = 0
+            self._download_complete.clear()
+            self._download_error = None
+            # Transition inside the lock so the driver thread cannot observe a
+            # window where payload is set but state is still CONNECTED.
+            self._set_state(State.STARTING)
+        # Reset the alive clock here so the erase timeout counts from when START
+        # is actually sent, not from the last GET_VERSION ACK (up to 500 ms earlier).
+        self._last_alive = time.monotonic()
         self._write_cmd(Command.START)
         self._write_raw(wire_header)
 
@@ -300,19 +362,23 @@ class Protocol:
         driver = threading.Thread(target=self.run, name="secureloader-protocol", daemon=True)
         driver.start()
         try:
-            # Wait until the device is CONNECTED (bootloader replied).
-            deadline = time.monotonic() + timeout
-            while self._state != State.CONNECTED:
-                if time.monotonic() >= deadline:
-                    raise ProtocolError("timed out waiting for device handshake")
+            # Wait until the device is CONNECTED via an Event — avoids the TOCTOU
+            # race that a busy-wait on _state would introduce.
+            handshake_timeout = min(timeout, 30.0)
+            if not self._connected_event.wait(timeout=handshake_timeout):
                 if not driver.is_alive():
                     raise ProtocolError("protocol loop exited unexpectedly")
-                time.sleep(0.05)
+                raise ProtocolError("timed out waiting for device handshake")
+            # start_download checks _state under its own lock; if the device
+            # timed out between our wait() returning and this call, it raises
+            # ProtocolError which propagates cleanly.
             self.start_download(firmware)
             self.wait_for_download(timeout=timeout)
         finally:
             self.stop()
             driver.join(timeout=2.0)
+            if driver.is_alive():
+                log.warning("protocol driver thread did not stop within timeout")
 
     # --------------------------------------------------------------- internals
 
@@ -320,6 +386,12 @@ class Protocol:
         if state == self._state:
             return
         self._state = state
+        if state == State.CONNECTED:
+            self._connected_event.set()
+        elif self._connected_event.is_set():
+            self._connected_event.clear()
+        if state == State.CONNECTING and (ser := self._ser) is not None:
+            ser.reset_input_buffer()
         if self._callbacks.on_state_changed:
             try:
                 self._callbacks.on_state_changed(state)
@@ -335,29 +407,32 @@ class Protocol:
                 log.exception("on_error callback raised")
 
     def _write_cmd(self, cmd: Command) -> bool:
-        if self._ser is None:
+        ser = self._ser
+        if ser is None:
             return False
         try:
-            self._ser.reset_input_buffer()
-            n = self._ser.write(bytes([int(cmd)]))
+            n = ser.write(bytes([int(cmd)]))
             return n == 1
         except SerialException:
             log.exception("serial write failed")
             return False
 
     def _write_raw(self, data: bytes) -> None:
-        if self._ser is None:
+        ser = self._ser
+        if ser is None:
             return
         try:
-            self._ser.write(data)
-        except SerialException:
-            log.exception("serial write_raw failed")
+            ser.write(data)
+        except SerialException as e:
+            self._emit_error(f"serial write failed: {e}")
+            self._stop.set()
 
     def _drain_rx(self) -> None:
-        if self._ser is None:
+        ser = self._ser
+        if ser is None:
             return
         try:
-            chunk = self._ser.read(self._ser.in_waiting or 1)
+            chunk = ser.read(ser.in_waiting or 1)
         except SerialException as e:
             self._emit_error(f"serial read failed: {e}")
             self._stop.set()
@@ -378,19 +453,26 @@ class Protocol:
             elif byte == _nak(Command.START):
                 self._on_download_error()
         elif state == State.SENDING:
-            if byte == _ack(Command.NEXT_BLOCK):
+            if byte == _ack(Command.NEXT_PAGE):
                 self._last_alive = time.monotonic()
                 self._send_next_page()
-            elif byte == _nak(Command.NEXT_BLOCK):
+            elif byte == _nak(Command.NEXT_PAGE):
                 self._on_download_error()
         # IDLE: swallow stray bytes silently.
 
     def _handle_handshake_byte(self, byte: int) -> None:
         # We expect: one ACK byte, followed by 16 bytes of device info.
+        _expected_info_bytes = 16
         if self._handshake_tail:
             self._handshake_buf.append(byte)
             self._handshake_tail -= 1
-            if self._handshake_tail == 0:
+            if len(self._handshake_buf) > _expected_info_bytes:
+                # Belt-and-suspenders: should never happen given the tail counter,
+                # but discard and reset so a misbehaving device can't grow the buffer.
+                log.warning("handshake buffer exceeded %d bytes — discarding", _expected_info_bytes)
+                self._handshake_buf.clear()
+                self._handshake_tail = 0
+            elif self._handshake_tail == 0:
                 info_bytes = bytes(self._handshake_buf)
                 self._handshake_buf.clear()
                 self._process_device_info(info_bytes)
@@ -398,6 +480,7 @@ class Protocol:
             self._handshake_buf.clear()
             self._handshake_tail = 16
             self._last_alive = time.monotonic()
+            self._missed_polls = 0
 
     def _process_device_info(self, info: bytes) -> None:
         bl_version, product_id, page_size = _DEVICE_INFO_STRUCT.unpack(info)
@@ -416,15 +499,18 @@ class Protocol:
 
     def _send_next_page(self) -> None:
         page_size = self._dev_page_size or DEFAULT_PAGE_SIZE
-        if len(self._pending_payload) >= page_size:
+        with self._download_lock:
+            has_page = len(self._pending_payload) >= page_size
+            if has_page:
+                page, self._pending_payload = (
+                    self._pending_payload[:page_size],
+                    self._pending_payload[page_size:],
+                )
+                self._pages_sent += 1
+        if has_page:
             self._set_state(State.SENDING)
-            page, self._pending_payload = (
-                self._pending_payload[:page_size],
-                self._pending_payload[page_size:],
-            )
-            self._write_cmd(Command.NEXT_BLOCK)
+            self._write_cmd(Command.NEXT_PAGE)
             self._write_raw(page)
-            self._pages_sent += 1
             if self._callbacks.on_page_sent:
                 try:
                     self._callbacks.on_page_sent(self._pages_sent, self._pages_total)

@@ -83,27 +83,31 @@ class ProtocolWorker(QObject):
                 self._proto.disconnect()
             except Exception:
                 log.exception("error during disconnect")
+            self._proto = None  # release reference before signalling done
             self.finished.emit()
 
     @Slot(bytes)
     def start_download(self, firmware: bytes) -> None:
-        if self._proto is None:
+        proto = self._proto
+        if proto is None:
             return
         try:
-            self._proto.start_download(firmware)
+            proto.start_download(firmware)
         except ProtocolError as e:
             self.error_occurred.emit(str(e))
 
     @Slot()
     def stop(self) -> None:
-        if self._proto is not None:
-            self._proto.stop()
+        proto = self._proto
+        if proto is not None:
+            proto.stop()
 
 
 class DownloadWorker(QObject):
     """Fetch a firmware blob from a :class:`FirmwareSource` on a background thread."""
 
-    finished = Signal(bytes, object)  # (data, FirmwareHeader | None)
+    # second argument is FirmwareHeader | None — Signal() does not support union types
+    finished = Signal(bytes, object)
     progress = Signal(int, int)
     error_occurred = Signal(str)
 
@@ -121,6 +125,8 @@ class DownloadWorker(QObject):
 
     @Slot()
     def run(self) -> None:
+        mode = "previous" if self._previous else "latest"
+        log.info("DownloadWorker: starting fetch (%s)", mode)
         try:
             progress_cb = lambda r, t: self.progress.emit(r, t)  # noqa: E731
             if self._previous:
@@ -128,18 +134,21 @@ class DownloadWorker(QObject):
             else:
                 data = self._source.fetch_latest(self._identifier, progress_cb)
         except FirmwareSourceError as e:
+            log.error("DownloadWorker: fetch failed: %s", e)
             self.error_occurred.emit(str(e))
             return
         except Exception as e:
-            log.exception("firmware source crashed")
+            log.exception("DownloadWorker: unexpected error during fetch")
             self.error_occurred.emit(str(e))
             return
 
+        log.info("DownloadWorker: fetch OK, %d bytes received", len(data))
         header: FirmwareHeader | None = None
         try:
             header = parse_header(data)
+            log.debug("DownloadWorker: header parsed OK: product_id=0x%016X", header.product_id)
         except Exception:
-            log.exception("downloaded blob does not parse as a firmware header")
+            log.error("DownloadWorker: downloaded blob does not parse as a firmware header")
         self.finished.emit(data, header)
 
 
@@ -154,7 +163,6 @@ def start_in_thread(worker: QObject, parent: QObject | None = None) -> QThread:
     thread.started.connect(worker.run)  # type: ignore[attr-defined]
     if hasattr(worker, "finished"):
         worker.finished.connect(thread.quit)
-        worker.finished.connect(worker.deleteLater)
     thread.finished.connect(thread.deleteLater)
     thread.start()
     return thread

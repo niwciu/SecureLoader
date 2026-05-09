@@ -25,12 +25,13 @@ class LoginDialog(QDialog):
         super().__init__(parent)
         self._config = config
         self.setWindowTitle(_("Set login and password"))
-        self.setMinimumSize(400, 115)
+        self.setMinimumSize(400, 200)
         self._build_ui()
 
     def _build_ui(self) -> None:
         grid = QGridLayout()
         grid.setContentsMargins(12, 12, 12, 12)
+        grid.setVerticalSpacing(10)
 
         grid.addWidget(QLabel(_("Login:"), alignment=Qt.AlignmentFlag.AlignRight), 0, 0)
         self._login = QLineEdit(self._config.http_login)
@@ -53,7 +54,10 @@ class LoginDialog(QDialog):
         self._button_box.rejected.connect(self.reject)
 
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(12)
         layout.addLayout(grid)
+        layout.addStretch()
         layout.addWidget(self._button_box)
 
     def _on_show_pressed(self) -> None:

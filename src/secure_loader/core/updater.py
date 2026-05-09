@@ -24,9 +24,10 @@ class MismatchReason:
 
     bootloader_mismatch: bool
     product_mismatch: bool
+    page_size_mismatch: bool
 
     def __bool__(self) -> bool:
-        return self.bootloader_mismatch or self.product_mismatch
+        return self.bootloader_mismatch or self.product_mismatch or self.page_size_mismatch
 
     def describe(self) -> str:
         parts = []
@@ -34,6 +35,8 @@ class MismatchReason:
             parts.append("bootloader protocol version")
         if self.product_mismatch:
             parts.append("product ID")
+        if self.page_size_mismatch:
+            parts.append("flash page size")
         return ", ".join(parts) if parts else ""
 
 
@@ -46,4 +49,9 @@ def check_device_matches_firmware(device: DeviceInfo, firmware: FirmwareHeader) 
     return MismatchReason(
         bootloader_mismatch=device.bootloader_version != firmware.protocol_version,
         product_mismatch=device.product_id != firmware.product_id,
+        page_size_mismatch=(
+            firmware.flash_page_size != 0
+            and device.flash_page_size != 0
+            and device.flash_page_size != firmware.flash_page_size
+        ),
     )
