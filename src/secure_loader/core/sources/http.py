@@ -174,7 +174,11 @@ class HttpFirmwareSource(FirmwareSource):
                 stream=True,
                 timeout=self._timeout_s,
             )
-            log.debug("response: HTTP %s  Content-Length: %s", response.status_code, response.headers.get("Content-Length", "unknown"))
+            log.debug(
+                "response: HTTP %s  Content-Length: %s",
+                response.status_code,
+                response.headers.get("Content-Length", "unknown"),
+            )
             response.raise_for_status()
             total = int(response.headers.get("Content-Length", 0))
             buf = bytearray()

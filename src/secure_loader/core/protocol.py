@@ -265,7 +265,10 @@ class Protocol:
             now = time.monotonic()
 
             # CONNECTED: count-based — 3 consecutive unanswered polls → reconnect.
-            if self._state == State.CONNECTED and self._missed_polls >= self._connected_missed_polls:
+            if (
+                self._state == State.CONNECTED
+                and self._missed_polls >= self._connected_missed_polls
+            ):
                 log.warning("3 consecutive GetVersion polls unanswered — reconnecting")
                 self._missed_polls = 0
                 self._set_state(State.CONNECTING)

@@ -13,6 +13,28 @@ versioning follows [Semantic Versioning](https://semver.org/).
   GitHub repo (see [docs/GITHUB_SOURCE_MIGRATION.md](docs/GITHUB_SOURCE_MIGRATION.md)).
 - Settings dialog in GUI (firmware source selection, PAT entry).
 
+## [1.2.0] — 2026-05-09
+
+Protocol robustness improvements, GUI diagnostics, and UX polish.
+
+### Added
+
+- **Page Size display** — device and firmware page sizes shown in the GUI with red highlight on mismatch (prevents silent update failure).
+- **`sld-gui --debug`** — debug logging is now off by default; pass `--debug` to enable verbose output in the console.
+- **"Erasing…" status + indeterminate progress bar** during flash erase (STARTING state); both progress bars reset on disconnect.
+- **Allow plain HTTP** checkbox in Server Settings dialog (`allow_insecure` config option).
+
+### Fixed
+
+- **Flash erase timeout** — separate 30 s timeout (`ERASE_TIMEOUT_S`) for the STARTING state prevents premature disconnect while the MCU erases flash.
+- **Slow-baud page-write timeout** — SENDING timeout is now dynamic: `(page_size × 10 bits / baudrate) + 2 s margin`, avoiding false disconnects at low baud rates or with large pages.
+- **`_last_alive` clock drift** — timestamp now resets when `START` is sent, not on the preceding `GET_VERSION` ACK.
+
+### Changed
+
+- **Protocol command names** aligned with C firmware: `NEXT_BLOCK` → `NEXT_PAGE`, `OK_MASK` → `OK`, `ERROR_MASK` → `ERR`.
+- **CONNECTED → CONNECTING timeout** replaced by count-based check: 3 consecutive missed `GET_VERSION` polls (~1.5 s) instead of a fixed 10 s timer.
+
 ## [1.1.0] — 2026-05-04
 
 Security hardening, audit log, OS keychain credential storage, and CI quality gates.
@@ -98,6 +120,7 @@ First release — Python implementation with Qt6 and separation of core / CLI / 
 - Config file saved with `0600` permissions on Unix.
 - Credentials do not appear in logs or error messages.
 
-[Unreleased]: https://github.com/niwciu/secureloader/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/niwciu/secureloader/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/niwciu/secureloader/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/niwciu/secureloader/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/niwciu/secureloader/releases/tag/v1.0.0
