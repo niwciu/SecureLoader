@@ -68,13 +68,19 @@ class TestParseHeader:
 
 
 class TestBuildDeviceHeader:
-    def test_strips_prev_app_version_field(self, sample_firmware: bytes) -> None:
+    def test_wire_header_is_full_48_byte_file_header(self, sample_firmware: bytes) -> None:
         wire = build_device_header(sample_firmware)
+        assert len(wire) == 48
         assert len(wire) == DEVICE_HEADER_SIZE
-        # First 16 bytes of the file are transmitted verbatim.
-        assert wire[:16] == sample_firmware[:16]
-        # Then comes [20:48] — the 4 bytes at [16:20] (prevAppVersion) are skipped.
-        assert wire[16:] == sample_firmware[20:HEADER_SIZE]
+        # Wire header is identical to the first HEADER_SIZE bytes of the file.
+        assert wire == sample_firmware[:HEADER_SIZE]
+
+    def test_prev_app_version_present_at_offset_16(self, sample_firmware: bytes) -> None:
+        wire = build_device_header(sample_firmware)
+        # prevAppVersion is at bytes [16:20] in both the file and the wire header.
+        assert wire[16:20] == sample_firmware[16:20]
+        # Confirm the value is non-zero (matches the fixture's 0x01020300).
+        assert wire[16:20] != b"\x00\x00\x00\x00"
 
     def test_rejects_short_blobs(self) -> None:
         with pytest.raises(FirmwareFormatError):
