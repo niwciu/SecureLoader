@@ -318,7 +318,7 @@ The command sequence:
 1. Opens the serial port and polls `GET_VERSION` every 500 ms until the bootloader responds.
 2. Reads device info (bootloader version, product ID, page size).
 3. Checks compatibility — product ID and protocol version must match the firmware header (unless `--force`).
-4. Sends `START` with the 44-byte wire header.
+4. Sends `START` with the 48-byte wire header.
 5. Streams all `pageCount` pages, reporting progress to stdout.
 6. Reports success or failure.
 

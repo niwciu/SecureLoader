@@ -19,10 +19,9 @@ Layout of an encrypted .bin file (little-endian):
 
 The 64-bit productId is reconstructed as ``(MSB << 32) | LSB``.
 
-The header that the device actually receives during a firmware update does
-**not** contain ``prevAppVersion`` — that field is stripped before transmission
-(see :class:`DeviceHeader`). ``prevAppVersion`` is only used by the host-side
-downloader to request the previous version from a remote source.
+The wire header sent to the device during a firmware update is identical to
+the full 48-byte file header. ``prevAppVersion`` is transmitted and the
+bootloader struct now includes it (bootloader v1.2+).
 """
 
 from __future__ import annotations
@@ -38,8 +37,8 @@ log = logging.getLogger(__name__)
 HEADER_SIZE: int = 48
 """Total size of the firmware header in bytes."""
 
-DEVICE_HEADER_SIZE: int = 44
-"""Size of the header sent to the device (header without ``prevAppVersion``)."""
+DEVICE_HEADER_SIZE: int = HEADER_SIZE
+"""Size of the header sent to the device (identical to the file header, 48 bytes)."""
 
 IV_SIZE: int = 16
 """Size of the initialization vector in bytes."""
@@ -214,24 +213,16 @@ def load_firmware(path: str | Path) -> tuple[FirmwareHeader, bytes]:
 
 
 def build_device_header(raw: bytes | bytearray) -> bytes:
-    """Build the header that is actually transmitted to the device.
+    """Return the 48-byte wire header transmitted to the device during CMD_START.
 
-    Wire header = bytes ``[0:16]`` (protocol + productId + appVersion)
-    concatenated with bytes ``[20:48]`` (pageCount + pageLen + IV + CRC),
-    dropping the 4-byte ``prevAppVersion`` field.
+    The wire header is identical to the file header — all fields including
+    ``prevAppVersion`` are transmitted (bootloader struct is 48 bytes).
     """
     if len(raw) < HEADER_SIZE:
         raise FirmwareFormatError(
             f"firmware too short: need at least {HEADER_SIZE} bytes, got {len(raw)}"
         )
-    first = bytes(raw[0:16])
-    second = bytes(raw[20:HEADER_SIZE])
-    wire = first + second
-    if len(wire) != DEVICE_HEADER_SIZE:
-        raise FirmwareFormatError(
-            f"built device header is {len(wire)} bytes, expected {DEVICE_HEADER_SIZE}"
-        )
-    return wire
+    return bytes(raw[0:HEADER_SIZE])
 
 
 def split_pages(payload: bytes, page_size: int) -> list[bytes]:

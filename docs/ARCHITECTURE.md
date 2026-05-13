@@ -74,14 +74,13 @@ Five modules encapsulating all business logic.
 
 Key objects:
 - `HEADER_SIZE = 48` — total header size on disk.
-- `DEVICE_HEADER_SIZE = 44` — header size sent to the device
-  (without the `prevAppVersion` field).
+- `DEVICE_HEADER_SIZE = 48` — header size sent to the device (identical to the file header).
 - `FirmwareHeader` — dataclass with fields and helpers (`format_product_id`,
   `license_id`, `unique_id`, `payload_size`).
 - `parse_header(bytes) -> FirmwareHeader` — parses the first 48 bytes.
 - `load_firmware(path) -> (FirmwareHeader, bytes)` — parses from file.
-- `build_device_header(bytes) -> bytes` — strips `prevAppVersion` before
-  transmission.
+- `build_device_header(bytes) -> bytes` — returns the 48-byte wire header
+  (identical to the file header).
 - `split_pages(payload, page_size) -> list[bytes]` — splits payload into
   equal pages; an incomplete final page is dropped (matching C++ behaviour).
 
@@ -407,7 +406,7 @@ offset  size  field
    4     4    productId (MSB)
    8     4    productId (LSB)
   12     4    appVersion
-  16     4    prevAppVersion     ← stripped before sending to device
+  16     4    prevAppVersion
   20     4    pageCount
   24     4    flashPageSize
   28    16    IV
@@ -415,7 +414,7 @@ offset  size  field
   48     …    encrypted pages
 ```
 
-Wire header = bytes `[0:16] + [20:48]` = 44 B (sent with the `START` command).
+Wire header = bytes `[0:48]` = 48 B (sent with the `START` command, identical to the file header).
 
 ### Product ID Convention
 
@@ -459,7 +458,7 @@ operations (compatibility check, device matching) the full 64-bit value is used.
 After ACK for `GET_VERSION` the device sends 16 bytes of device info
 (`u32 bootloaderVersion`, `u64 productId`, `u32 flashPageSize`).
 
-The host sends `START` (`0x02`) immediately followed by the 44 B wire header
+The host sends `START` (`0x02`) immediately followed by the 48 B wire header
 as a single transmission. The device responds ACK/NAK. Then for each page the
 host sends `NEXT_PAGE` (`0x03`) + `flashPageSize` bytes, and the device ACKs.
 

@@ -51,7 +51,7 @@ delimiter.
 | Name | Code | Payload | Meaning |
 |------|------|---------|---------|
 | `GET_VERSION` | `0x01` | — | Request device info |
-| `START` | `0x02` | 44 B wire header | Begin firmware transfer |
+| `START` | `0x02` | 48 B wire header | Begin firmware transfer |
 | `NEXT_PAGE` | `0x03` | `flashPageSize` B | One payload page |
 | `RESET` | `0x04` | — | Soft-reset the device |
 | `NONE` | `0x00` | — | Reserved, unused |
@@ -100,8 +100,8 @@ One rule covers all commands — no translation table needed on either side.
 
 ### `START` (`0x02`)
 
-**Host sends:** `0x02`, then the **44-byte wire header**
-(see [Firmware Format — Wire Header](FIRMWARE_FORMAT.md#-wire-header-44-b)).
+**Host sends:** `0x02`, then the **48-byte wire header**
+(see [Firmware Format — Wire Header](FIRMWARE_FORMAT.md#-wire-header-48-b)).
 
 **Device responds:**
 
@@ -157,7 +157,7 @@ sequenceDiagram
 
     Note over H: validates compatibility<br/>(bootloaderVersion == protocolVersion, productId match)
 
-    H->>D: 0x02  START + 44 B wire header
+    H->>D: 0x02  START + 48 B wire header
     D->>H: 0x42  ACK  (flash erased, decryption ready)
 
     loop pageCount pages
@@ -272,7 +272,7 @@ stateDiagram-v2
     [*] --> WAIT_CMD : power on / reset
 
     WAIT_CMD --> WAIT_CMD : 0x01 GET_VERSION → reply 0x41 + 16 B info
-    WAIT_CMD --> READ_HEADER : 0x02 START → read 44 B wire header
+    WAIT_CMD --> READ_HEADER : 0x02 START → read 48 B wire header
     WAIT_CMD --> [*] : 0x04 RESET → reply 0x44 · reset
 
     READ_HEADER --> WAIT_CMD : header invalid → 0x82 NAK
