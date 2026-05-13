@@ -2,7 +2,8 @@ name: CI Pipeline
 
 on:
   push:
-    branches: [main, develop]
+    branches-ignore: 
+      - main # protected branches — require PR
   pull_request:
     branches: [main, develop]
   workflow_dispatch:
