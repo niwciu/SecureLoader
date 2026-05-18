@@ -68,9 +68,7 @@ def _setup_logging(verbose: int) -> None:
 def _format_header(header: FirmwareHeader, config: AppConfig | None = None) -> str:
     defs = config.id_section_defs if config is not None else list(DEFAULT_ID_SECTIONS)
     sections = header.get_sections(defs)
-    section_lines = "".join(
-        f"\n  {name:<16} = {value}" for name, value in sections.items()
-    )
+    section_lines = "".join(f"\n  {name:<16} = {value}" for name, value in sections.items())
     return (
         f"  protocolVersion  = {header.format_protocol_version()}\n"
         f"  productId        = {header.format_product_id()}{section_lines}\n"

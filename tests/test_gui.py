@@ -485,8 +485,8 @@ class TestServerSettingsDialogSmoke:
     def test_pid_viz_contains_section_nibble_ranges(self, server_settings_dialog) -> None:
         defs = server_settings_dialog._pid_viz._defs
         ranges = [(d.start, d.end - 1) for d in defs]  # inclusive end for display
-        assert (0, 7) in ranges    # custom_id
-        assert (8, 9) in ranges    # hw_id
+        assert (0, 7) in ranges  # custom_id
+        assert (8, 9) in ranges  # hw_id
         assert (10, 11) in ranges  # license_id
         assert (12, 15) in ranges  # unique_id
 
@@ -496,6 +496,7 @@ class TestServerSettingsDialogSmoke:
 
     def test_pid_viz_inactive_nibbles_shown_in_grey(self, server_settings_dialog) -> None:
         from secure_loader.gui.server_settings_dialog import _INACTIVE_COLORS
+
         assert _INACTIVE_COLORS[1] == "#9ca3af"
 
     def test_pid_viz_shows_section_names(self, server_settings_dialog) -> None:

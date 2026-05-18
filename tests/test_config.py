@@ -28,7 +28,13 @@ class TestRoundTrip:
         assert cfg.update_instruction_url == ""
         assert cfg.last_firmware_paths == []
 
-    def test_save_and_reload(self, tmp_cfg: Path) -> None:
+    def test_save_and_reload(self, tmp_cfg: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        _store: dict[tuple[str, str], str] = {}
+        mock_kr = MagicMock()
+        mock_kr.set_password.side_effect = lambda svc, usr, pw: _store.__setitem__((svc, usr), pw)
+        mock_kr.get_password.side_effect = lambda svc, usr: _store.get((svc, usr))
+        monkeypatch.setattr("secure_loader.config.keyring", mock_kr)
+
         original = AppConfig(
             http_base_url="https://example.com",
             http_login="user",
@@ -192,9 +198,7 @@ class TestKeyringStorage:
         monkeypatch.setattr("secure_loader.config.keyring", mock_kr)
 
         # Write a legacy config that still has the password in plaintext.
-        tmp_cfg.write_text(
-            "[http]\nlogin = user\npassword = legacy_secret\n", encoding="utf-8"
-        )
+        tmp_cfg.write_text("[http]\nlogin = user\npassword = legacy_secret\n", encoding="utf-8")
         loaded = load_config(tmp_cfg)
 
         assert loaded.http_password == "legacy_secret"

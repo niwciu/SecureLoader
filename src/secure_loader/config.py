@@ -62,9 +62,7 @@ class AppConfig:
     http_use_credentials: bool = False
     http_allow_insecure: bool = False
     http_path_segments: list[str] = field(default_factory=lambda: list(DEFAULT_PATH_SEGMENTS))
-    id_section_defs: list[IdSectionDef] = field(
-        default_factory=lambda: list(DEFAULT_ID_SECTIONS)
-    )
+    id_section_defs: list[IdSectionDef] = field(default_factory=lambda: list(DEFAULT_ID_SECTIONS))
     language: str = "auto"  # "en" | "de" | "fr" | "es" | "it" | "pl" | "auto"
     update_instruction_url: str = ""  # empty = menu item hidden
     last_firmware_paths: list[str] = field(default_factory=list)

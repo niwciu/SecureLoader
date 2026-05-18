@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import contextlib
 
-from PySide6.QtCore import Qt, QRect
+from PySide6.QtCore import QRect, Qt
 from PySide6.QtGui import QBrush, QColor, QFont, QPainter, QPaintEvent, QPen
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -61,7 +61,7 @@ class _PidVizWidget(QWidget):
         self._defs = list(defs)
         self.update()
 
-    def paintEvent(self, event: QPaintEvent) -> None:  # type: ignore[override]
+    def paintEvent(self, event: QPaintEvent) -> None:  # noqa: N802
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
@@ -94,8 +94,8 @@ class _PidVizWidget(QWidget):
                 sec_name = ""
                 bg_str, fg_str, border_str = _INACTIVE_COLORS
 
-            x = int(round(i * (cell_w + gap)))
-            span_w = int(round(j * (cell_w + gap) - gap)) - x
+            x = round(i * (cell_w + gap))
+            span_w = round(j * (cell_w + gap) - gap) - x
             fg = QColor(fg_str)
 
             hex_rect = QRect(x, 0, span_w, hex_h)
@@ -349,7 +349,7 @@ class ServerSettingsDialog(QDialog):
         else:
             # Place the new section at the first nibble not covered by any existing valid row.
             covered: set[int] = set()
-            for (_ne, other_s, other_e) in self._section_rows:
+            for _ne, other_s, other_e in self._section_rows:
                 if other_s.value() <= other_e.value():
                     covered.update(range(other_s.value(), other_e.value() + 1))
             new_start = next((i for i in range(16) if i not in covered), 15)
@@ -375,7 +375,9 @@ class ServerSettingsDialog(QDialog):
         name_edit.textChanged.connect(self._on_section_changed)
         start_spin.valueChanged.connect(self._on_section_changed)
         end_spin.valueChanged.connect(self._on_section_changed)
-        del_btn.clicked.connect(lambda: self._delete_section_row(row_widget, name_edit, start_spin, end_spin))
+        del_btn.clicked.connect(
+            lambda: self._delete_section_row(row_widget, name_edit, start_spin, end_spin)
+        )
         self._update_spinbox_constraints()
 
     def _delete_section_row(
@@ -387,10 +389,8 @@ class ServerSettingsDialog(QDialog):
     ) -> None:
         assert self._section_rows_layout is not None
         self._section_rows_layout.removeWidget(row_widget)
-        row_widget.setParent(None)  # type: ignore[call-overload]
-        self._section_rows = [
-            r for r in self._section_rows if r[0] is not name_edit
-        ]
+        row_widget.setParent(None)
+        self._section_rows = [r for r in self._section_rows if r[0] is not name_edit]
         self._on_section_changed()
 
     def _on_section_changed(self) -> None:
@@ -412,16 +412,16 @@ class ServerSettingsDialog(QDialog):
         if not rows:
             return
 
-        for _, s, e in rows:
+        for _ne, s, e in rows:
             s.blockSignals(True)
             e.blockSignals(True)
 
-        for _, start_spin, end_spin in rows:
+        for _ne, start_spin, end_spin in rows:
             s_val = start_spin.value()
             # Consider only other rows that are currently in a valid state.
             others = [
                 (other_s.value(), other_e.value())
-                for (_, other_s, other_e) in rows
+                for (_ne, other_s, other_e) in rows
                 if other_s is not start_spin and other_s.value() <= other_e.value()
             ]
             # start_min: right after the nearest valid section that ends before us.
@@ -440,7 +440,7 @@ class ServerSettingsDialog(QDialog):
             start_spin.setMinimum(start_min)
             end_spin.setMaximum(max(0, end_max))
 
-        for _, s, e in rows:
+        for _ne, s, e in rows:
             s.blockSignals(False)
             e.blockSignals(False)
 

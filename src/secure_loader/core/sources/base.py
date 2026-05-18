@@ -48,7 +48,8 @@ class FirmwareIdentifier:
         not ``_sections`` or ``app_version``).
         """
         try:
-            return object.__getattribute__(self, "_sections")[name]
+            sections: dict[str, str] = object.__getattribute__(self, "_sections")
+            return sections[name]
         except KeyError:
             available = list(object.__getattribute__(self, "_sections"))
             raise AttributeError(
@@ -63,7 +64,8 @@ class FirmwareIdentifier:
 
     def get(self, name: str, default: str = "") -> str:
         """Return section value or ``default`` if the section is not present."""
-        return object.__getattribute__(self, "_sections").get(name, default)
+        sections: dict[str, str] = object.__getattribute__(self, "_sections")
+        return sections.get(name, default)
 
     @property
     def section_names(self) -> list[str]:
@@ -75,14 +77,12 @@ class FirmwareIdentifier:
     def __repr__(self) -> str:
         sections = object.__getattribute__(self, "_sections")
         app_version = object.__getattribute__(self, "app_version")
-        return (
-            f"FirmwareIdentifier(sections={sections!r}, app_version={app_version!r})"
-        )
+        return f"FirmwareIdentifier(sections={sections!r}, app_version={app_version!r})"
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, FirmwareIdentifier):
             return NotImplemented
-        return (
+        return bool(
             object.__getattribute__(self, "_sections")
             == object.__getattribute__(other, "_sections")
             and object.__getattribute__(self, "app_version")
