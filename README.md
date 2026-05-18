@@ -50,6 +50,22 @@ Related repositories: [SecureBootloader](https://github.com/niwciu/SECURE_BOOTLO
 
 ---
 
+## 🔗 Tool Compatibility
+
+The **SecureBootloader ↔ SecureLoader** pairing is version-locked — a protocol change in SecureLoader v2.0.0 reduced the UART wire header from 48 → 44 bytes:
+
+| SecureLoader | SecureBootloader | Compatible |
+|:-------------|:----------------|:----------:|
+| < v2.0.0 | v1.0.0 | ✅ |
+| ≥ v2.0.0 | ≥ v1.1 | ✅ |
+| ≥ v2.0.0 | v1.0.0 | ❌ device stalls on `CMD_START` |
+| < v2.0.0 | ≥ v1.1 | ❌ header size mismatch |
+
+> ⚠️ Always match the SecureLoader version to the SecureBootloader version deployed on your device.
+> Flash the updated bootloader (≥ v1.1) to the target before deploying SecureLoader v2.0.0 or later.
+
+---
+
 ## 📦 Installation
 
 Python 3.10+ required.
@@ -191,15 +207,29 @@ sld info --port COM3
 
 SecureLoader can download firmware directly from an HTTP server before flashing — no manual file transfer needed.
 
+The server URL path is built from configurable **Product ID sections**: named nibble-level slices of
+the device's 64-bit `productId`. The default layout matches the EncryptBIN / SecureBootloader
+convention (`license_id` and `unique_id` as path segments), but any split and naming scheme is supported.
+
 ```bash
 # 1. Configure your server URL once (HTTPS is required by default)
 sld config set http.base_url https://myserver/update
 
-# 2. Download the latest firmware (license/unique IDs come from the device)
-sld fetch --license AB --unique C0FE --output firmware.bin
+# 2. Download the latest firmware using the default sections
+sld fetch --section license_id=AB --section unique_id=C0FE --output firmware.bin
 
 # 3. Flash as usual
 sld flash --file firmware.bin --port /dev/ttyUSB0
+```
+
+To use custom Product ID sections matching your server layout:
+
+```bash
+# Define a custom split (once, saved to config)
+sld config set product_id.sections "product:0:6,serial:6:16"
+
+# Download using the custom section names
+sld fetch --section product=AABB --section serial=C0FE0001 --output firmware.bin
 ```
 
 If the server requires authentication, set credentials once:
@@ -212,7 +242,7 @@ sld config set-password          # secure interactive prompt — avoids shell hi
 > ⚠️ Plain HTTP (`http://`) is rejected by default. Pass `--allow-insecure` to `fetch`
 > only in isolated lab environments where HTTPS is not available.
 
-The GUI exposes the same feature via the **Fetch from server** and **Get Previous Firmware** buttons — both become active once a device is connected.
+The GUI exposes the same feature via the **Fetch from server** and **Get Previous Firmware** buttons — both become active once a device is connected. The **Settings → Server settings** dialog lets you visually design the Product ID section layout and URL path structure.
 
 See the [User Guide](https://niwciu.github.io/SecureLoader/USER_GUIDE/) for HTTP server path requirements and full configuration details.
 

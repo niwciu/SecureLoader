@@ -7,11 +7,88 @@ versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-### Planned
+### Added
 
-- `GithubReleasesFirmwareSource` — complete integration with private
-  GitHub repo (see [docs/GITHUB_SOURCE_MIGRATION.md](docs/GITHUB_SOURCE_MIGRATION.md)).
-- Settings dialog in GUI (firmware source selection, PAT entry).
+- **Mandatory OS keychain credential storage** — `keyring` is now a required
+  dependency (previously the optional `[security]` extra).  The HTTP password is
+  always stored in macOS Keychain, Windows Credential Manager, or a D-Bus secret
+  store on Linux and is **never written to `config.ini`**.  Existing configs that
+  still contain a plaintext password are silently migrated to the keychain on the
+  first load.
+
+### Changed
+
+- **Section editor — inclusive end display** — the *End* spinbox now shows the
+  last nibble *included* in the section (range 0–15) instead of the
+  Python-exclusive upper bound (range 1–16), eliminating the confusing appearance
+  that adjacent sections share a boundary nibble.  Internal `IdSectionDef`
+  storage is unchanged.
+- **Section editor — position-based spinbox constraints** — overlap prevention
+  now operates on nibble position rather than GUI row order, so a section can be
+  freely repositioned across the ID without being blocked by a neighbouring row.
+  New sections default to the first uncovered nibble.
+- **Product ID visualisation** — the 16-nibble colour strip is now rendered by a
+  native `QPainter` widget that scales to the full dialog width.  Section names
+  and nibble ranges are displayed in a larger font.
+
+## [2.0.0] — 2026-05-17
+
+This release completes the HTTP firmware download feature, introducing
+fully configurable Product ID sectioning and a redesigned Server Settings dialog.
+
+> ⚠️ **Breaking change (bootloader):** the UART wire header shrinks from 48 B to
+> 44 B.  Devices running **bootloader v1.0.0** will stall on `CMD_START` (they
+> wait for 48 bytes and misparse the first page command).  Flash the updated
+> bootloader (v1.1+) to the target device before deploying this release.
+
+> ⚠️ **Breaking change (CLI):** `sld fetch --license / --unique` are replaced by
+> `sld fetch --section NAME=VALUE` (repeatable).  Update any scripts that call
+> `sld fetch` with the old flags.
+
+### Added
+
+- **Configurable Product ID sections** (`core/id_sections.py`) — the 64-bit
+  `productId` can now be split into any number of named sections at nibble
+  (half-byte) granularity (0–16).  Each section has a `name`, `start`, and `end`
+  nibble position.  The default split matches the EncryptBIN / SecureBootloader
+  convention: `custom_id [0:8]`, `hw_id [8:10]`, `license_id [10:12]`,
+  `unique_id [12:16]`.
+- **`product_id.sections` config key** — serialised as `name:start:end,…`; stored
+  in the `[product_id]` INI section.  Configurable via
+  `sld config set product_id.sections` or the new GUI section editor.
+- **`get_sections(defs)` on `FirmwareHeader` and `DeviceInfo`** — extracts section
+  values from `productId` using a list of `IdSectionDef` objects.
+- **Redesigned Server Settings dialog** — four groups:
+  - *Server* — base URL + allow-insecure checkbox (unchanged).
+  - *Credentials* — login / password (unchanged).
+  - *Product ID sections* — scrollable section editor (name + start/end spinboxes
+    + delete per row, "Add section" button).  A 16-nibble colour-coded hex strip
+    visualises the current layout dynamically.
+  - *URL path structure* — checklist of defined sections with Up/Down ordering and
+    a live URL preview.
+
+### Changed
+
+- **`sld fetch`** — `--license` / `--unique` flags replaced by repeatable
+  `--section NAME=VALUE` (e.g. `--section license_id=AB --section unique_id=C0FE`).
+  Any section name defined in `product_id.sections` is accepted.
+- **`sld config show`** — now includes all `http.*` fields, `product_id.sections`,
+  and `ui.instruction_url`.
+- **`FirmwareIdentifier`** — redesigned from a frozen dataclass with fixed keyword
+  fields to a dict-backed immutable class.  Sections are accessed as attributes
+  (`identifier.license_id`) via `__getattr__`; all existing callers using the
+  default section names continue to work without changes.
+- **Wire header reduced from 48 B to 44 B** — `prevAppVersion` is no longer
+  included in the `CMD_START` payload.  The field is still read from the `.bin`
+  file and available for host-side rollback logic, but the bootloader
+  `header_t` struct no longer contains it (bootloader v1.1+ change).
+  `build_device_header()` now returns `file[0:16] + file[20:48]`.
+- **`DEVICE_HEADER_SIZE`** constant updated from `48` to `44`.
+
+### Fixed
+
+- **CI workflow** — updated action versions for compatibility with current
+  GitHub Actions runner environment.
 
 ## [1.2.0] — 2026-05-09
 

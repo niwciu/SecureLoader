@@ -5,9 +5,10 @@ The CLI mirrors the GUI's feature set in a headless form::
     sld list-ports
     sld info --file firmware.bin
     sld info --port /dev/ttyUSB0
-    sld fetch --license 42 --unique C0FE --output firmware.bin
+    sld fetch --section license_id=42 --section unique_id=C0FE --output firmware.bin
     sld flash --port /dev/ttyUSB0 --file firmware.bin [--yes]
     sld config set http.login <value>
+    sld config set product_id.sections custom_id:0:8,hw_id:8:10,license_id:10:12,unique_id:12:16
 
 All output is intentionally plain (no colour by default, no progress bars
 by default) to make it easy to embed in scripts. Pass ``--verbose`` to
@@ -17,8 +18,8 @@ enable INFO/DEBUG logging and ``--progress`` to render tqdm-style bars.
 ``--yes``/``-y`` to skip the prompt in non-interactive scripts.
 
 ``config set`` validates ``ui.language`` (must be one of the supported codes
-or ``auto``) and ``http.base_url`` (must start with ``http://`` or
-``https://``).
+or ``auto``), ``http.base_url`` (must start with ``http://`` or ``https://``),
+and ``product_id.sections`` (must be a valid nibble-range section list).
 """
 
 from __future__ import annotations
@@ -35,6 +36,7 @@ from .. import __app_name__, __version__
 from ..config import AppConfig, config_path, load_config, save_config
 from ..core.audit import log_flash
 from ..core.firmware import FirmwareHeader, load_firmware, parse_header
+from ..core.id_sections import DEFAULT_ID_SECTIONS, parse_id_sections, serialize_id_sections
 from ..core.protocol import (
     DeviceInfo,
     Parity,
@@ -63,17 +65,18 @@ def _setup_logging(verbose: int) -> None:
     )
 
 
-def _format_header(header: FirmwareHeader) -> str:
+def _format_header(header: FirmwareHeader, config: AppConfig | None = None) -> str:
+    defs = config.id_section_defs if config is not None else list(DEFAULT_ID_SECTIONS)
+    sections = header.get_sections(defs)
+    section_lines = "".join(f"\n  {name:<16} = {value}" for name, value in sections.items())
     return (
         f"  protocolVersion  = {header.format_protocol_version()}\n"
-        f"  productId        = {header.format_product_id()}\n"
+        f"  productId        = {header.format_product_id()}{section_lines}\n"
         f"  appVersion       = {header.format_app_version()}\n"
         f"  prevAppVersion   = {header.format_prev_app_version()}\n"
         f"  pageCount        = {header.page_count}\n"
         f"  flashPageSize    = {header.flash_page_size} B\n"
-        f"  payloadSize      = {header.payload_size} B\n"
-        f"  licenseID        = {header.license_id}\n"
-        f"  uniqueID         = {header.unique_id}"
+        f"  payloadSize      = {header.payload_size} B"
     )
 
 
@@ -160,11 +163,12 @@ def info_cmd(
     if not file_path and not port:
         raise click.UsageError("Provide --file and/or --port.")
 
+    config: AppConfig = ctx.obj["config"]
     fw_header: FirmwareHeader | None = None
     if file_path:
         fw_header, _data = load_firmware(file_path)
         click.echo(_("Firmware header:"))
-        click.echo(_format_header(fw_header))
+        click.echo(_format_header(fw_header, config))
 
     if port:
         device = _query_device(port, Parity.from_label(parity), timeout, baudrate, float(stopbits))
@@ -214,8 +218,17 @@ def _query_device(
 
 
 @cli.command("fetch", help="Download a firmware image from the HTTP source.")
-@click.option("--license", "license_id", required=True, help="License ID.")
-@click.option("--unique", "unique_id", required=True, help="Unique device ID.")
+@click.option(
+    "--section",
+    "sections",
+    multiple=True,
+    metavar="NAME=VALUE",
+    help=(
+        "Product ID section value, e.g. --section license_id=42. "
+        "Repeat for each section required by the server path. "
+        "Section names must match those defined in product_id.sections config."
+    ),
+)
 @click.option(
     "--previous",
     "prev_version",
@@ -239,14 +252,27 @@ def _query_device(
 @click.pass_context
 def fetch_cmd(
     ctx: click.Context,
-    license_id: str,
-    unique_id: str,
+    sections: tuple[str, ...],
     prev_version: str | None,
     out_path: Path,
     base_url: str | None,
     allow_insecure: bool,
 ) -> None:
     config: AppConfig = ctx.obj["config"]
+
+    section_dict: dict[str, str] = {}
+    for entry in sections:
+        if "=" not in entry:
+            raise click.UsageError(f"--section must be NAME=VALUE, got: {entry!r}")
+        name, _, value = entry.partition("=")
+        section_dict[name.strip()] = value.strip()
+
+    if not section_dict:
+        raise click.UsageError(
+            "Provide at least one --section NAME=VALUE to identify the firmware. "
+            "Example: --section license_id=42 --section unique_id=C0FE"
+        )
+
     effective_url = base_url or config.http_base_url
     source = HttpFirmwareSource(
         base_url=effective_url,
@@ -254,11 +280,7 @@ def fetch_cmd(
         allow_insecure=allow_insecure,
         path_segments=config.http_path_segments,
     )
-    identifier = FirmwareIdentifier(
-        license_id=license_id,
-        unique_id=unique_id,
-        app_version=prev_version,
-    )
+    identifier = FirmwareIdentifier(section_dict, app_version=prev_version)
 
     def progress(received: int, total: int) -> None:
         if total:
@@ -278,7 +300,7 @@ def fetch_cmd(
     try:
         header = parse_header(data)
         click.echo(_("Firmware header:"))
-        click.echo(_format_header(header))
+        click.echo(_format_header(header, config))
     except Exception:
         log.exception("downloaded data does not parse as a firmware header")
 
@@ -331,9 +353,10 @@ def flash_cmd(
     force: bool,
     yes: bool,
 ) -> None:
+    config: AppConfig = ctx.obj["config"]
     header, firmware = load_firmware(file_path)
     click.echo(_("Firmware header:"))
-    click.echo(_format_header(header))
+    click.echo(_format_header(header, config))
 
     device_info: dict[str, DeviceInfo] = {}
     connected = threading.Event()
@@ -427,13 +450,17 @@ def config_path_cmd() -> None:
 @click.pass_context
 def config_show_cmd(ctx: click.Context) -> None:
     cfg: AppConfig = ctx.obj["config"]
-    click.echo(f"http.base_url         = {cfg.http_base_url}")
-    click.echo(f"http.login            = {cfg.http_login}")
-    click.echo(f"http.password         = {'***' if cfg.http_password else ''}")
-    click.echo(f"ui.language           = {cfg.language}")
-    click.echo(f"ui.instruction_url    = {cfg.update_instruction_url}")
+    click.echo(f"http.base_url              = {cfg.http_base_url}")
+    click.echo(f"http.login                 = {cfg.http_login}")
+    click.echo(f"http.password              = {'***' if cfg.http_password else ''}")
+    click.echo(f"http.use_credentials       = {cfg.http_use_credentials}")
+    click.echo(f"http.allow_insecure        = {cfg.http_allow_insecure}")
+    click.echo(f"http.path_segments         = {','.join(cfg.http_path_segments)}")
+    click.echo(f"product_id.sections        = {serialize_id_sections(cfg.id_section_defs)}")
+    click.echo(f"ui.language                = {cfg.language}")
+    click.echo(f"ui.instruction_url         = {cfg.update_instruction_url}")
     for i, path in enumerate(cfg.last_firmware_paths):
-        click.echo(f"recent.firmware_{i}    = {path}")
+        click.echo(f"recent.firmware_{i:<10} = {path}")
 
 
 @config_group.command("set", help="Set a configuration value (key=value).")
@@ -449,6 +476,14 @@ def config_set_cmd(ctx: click.Context, key: str, value: str) -> None:
         "ui.language": "language",
         "ui.instruction_url": "update_instruction_url",
     }
+    if key == "product_id.sections":
+        try:
+            cfg.id_section_defs = parse_id_sections(value)
+        except ValueError as exc:
+            raise click.UsageError(str(exc)) from exc
+        save_config(cfg)
+        click.echo(f"{key} saved.")
+        return
     attr = mapping.get(key)
     if attr is None:
         raise click.UsageError(f"unknown key: {key}")

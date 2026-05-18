@@ -15,6 +15,7 @@ only depend on that protocol, which keeps frontends decoupled from the
 transport.
 """
 
+from ..id_sections import DEFAULT_ID_SECTIONS, IdSectionDef
 from .base import (
     FirmwareIdentifier,
     FirmwareSource,
@@ -25,10 +26,12 @@ from .http import HttpFirmwareSource
 from .local import LocalFirmwareSource
 
 __all__ = [
+    "DEFAULT_ID_SECTIONS",
     "FirmwareIdentifier",
     "FirmwareSource",
     "FirmwareSourceError",
     "HttpFirmwareSource",
+    "IdSectionDef",
     "LocalFirmwareSource",
     "ProgressCallback",
 ]

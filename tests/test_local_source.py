@@ -10,7 +10,7 @@ from secure_loader.core.sources.local import LocalFirmwareSource
 
 @pytest.fixture
 def identifier() -> FirmwareIdentifier:
-    return FirmwareIdentifier(license_id="CC", unique_id="3344")
+    return FirmwareIdentifier({"license_id": "CC", "unique_id": "3344"})
 
 
 class TestLocalFirmwareSource:

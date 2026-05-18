@@ -14,7 +14,7 @@ Host implementation: [`src/secure_loader/core/firmware.py`](https://github.com/n
 2. [Header Layout (48 B)](#-header-layout-48-b)
 3. [Field Semantics](#-field-semantics)
 4. [productId Derived Fields](#-productid-derived-fields)
-5. [Wire Header (48 B)](#-wire-header-48-b)
+5. [Wire Header (44 B)](#-wire-header-44-b)
 6. [Payload](#-payload)
 7. [Host Parsing API](#-host-parsing-api)
 
@@ -89,7 +89,8 @@ informational purposes. Not validated by the bootloader protocol.
 Version of the previous application image. Used by the host to request an
 older firmware from the HTTP source (`fetch_previous`).
 GitHub Releases support is planned — see [Roadmap](GITHUB_SOURCE_MIGRATION.md).
-This field is transmitted to the device as part of the 48-byte wire header — see [Wire Header](#-wire-header-48-b).
+**This field is read by the host but is NOT forwarded to the device** — the
+44-byte wire header omits it (see [Wire Header](#-wire-header-44-b)).
 
 ### `pageCount` (u32)
 
@@ -148,11 +149,16 @@ for the full fetch workflow.
 
 ---
 
-## 📡 Wire Header (48 B)
+## 📡 Wire Header (44 B)
 
-The header transmitted to the device during a firmware update is identical to
-the full 48-byte file header. All fields — including `prevAppVersion` — are
-sent as-is.
+The header transmitted to the device during a firmware update is **44 bytes**.
+`prevAppVersion` is read from the file and used internally by the host (e.g.
+to fetch a rollback image), but is **not** included in the UART payload.
+This matches the bootloader v1.1+ `header_t` struct layout exactly.
+
+> **Compatibility note:** the 44-byte wire header requires **bootloader v1.1+**.
+> A bootloader built from v1.0.0 expects 48 bytes and will stall waiting for the
+> missing 4 bytes. Confirm the target device runs v1.1+ before deploying.
 
 ```mermaid
 flowchart LR
@@ -161,23 +167,23 @@ flowchart LR
         B["bytes 16–19<br/>prevAppVersion"]
         C["bytes 20–47<br/>pageCount · flashPageSize<br/>IV · crc32"]
     end
-    subgraph wire["Wire header — 48 B  (sent to device)"]
+    subgraph wire["Wire header — 44 B  (sent to device)"]
         W["START command payload"]
     end
     A -- "copied" --> W
-    B -- "copied" --> W
+    B -. "host-only\n(not forwarded)" .-> W
     C -- "copied" --> W
 ```
 
 Expressed as a slice operation:
 
 ```
-wire_header = disk_header[0:48]
+wire_header = disk_header[0:16] + disk_header[20:48]
             = protocolVersion + productId (MSB+LSB) + appVersion
-              + prevAppVersion + pageCount + flashPageSize + IV + crc32
+              + pageCount + flashPageSize + IV + crc32
 ```
 
-This 48-byte block is the payload of the `START` command.
+This 44-byte block is the payload of the `START` command.
 
 ---
 
@@ -203,7 +209,7 @@ flowchart LR
     file["📄 .bin file"] --> lf["load_firmware(path)"]
     lf --> hdr["FirmwareHeader\n(frozen dataclass)"]
     lf --> raw["raw bytes"]
-    raw --> bdh["build_device_header(raw)\n→ 48 B wire header"]
+    raw --> bdh["build_device_header(raw)\n→ 44 B wire header"]
     raw --> sp["split_pages(payload, page_size)\n→ list[bytes]"]
     hdr --> fields["license_id · unique_id\npayload_size\nformat_product_id() · …"]
 ```
@@ -212,7 +218,7 @@ flowchart LR
 from secure_loader.core.firmware import (
     parse_header,          # parse_header(data: bytes) -> FirmwareHeader
     load_firmware,         # load_firmware(path) -> (FirmwareHeader, bytes)
-    build_device_header,   # build_device_header(raw: bytes) -> bytes  (48 B)
+    build_device_header,   # build_device_header(raw: bytes) -> bytes  (44 B, prevAppVersion stripped)
     split_pages,           # split_pages(payload, page_size) -> list[bytes]
 )
 ```

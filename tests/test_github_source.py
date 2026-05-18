@@ -23,7 +23,7 @@ def source(config: GithubConfig) -> GithubReleasesFirmwareSource:
 
 @pytest.fixture
 def identifier() -> FirmwareIdentifier:
-    return FirmwareIdentifier(license_id="CC", unique_id="3344")
+    return FirmwareIdentifier({"license_id": "CC", "unique_id": "3344"})
 
 
 def _json_response(data: object, status: int = 200) -> MagicMock:
@@ -122,7 +122,7 @@ class TestFetchPrevious:
     def test_fetches_by_tag(
         self, source: GithubReleasesFirmwareSource, identifier: FirmwareIdentifier
     ) -> None:
-        ident = FirmwareIdentifier(license_id="CC", unique_id="3344", app_version="1.0.0")
+        ident = FirmwareIdentifier({"license_id": "CC", "unique_id": "3344"}, app_version="1.0.0")
         payload = b"\xde\xad"
         asset = {"name": "cc_3344.bin", "url": "https://api.github.com/assets/5", "size": 2}
         release_resp = _json_response({"assets": [asset]})

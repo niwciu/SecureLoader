@@ -41,6 +41,7 @@ from .firmware import (
     build_device_header,
     split_pages,
 )
+from .id_sections import IdSectionDef
 
 log = logging.getLogger(__name__)
 
@@ -123,6 +124,16 @@ class DeviceInfo:
 
     def format_product_id(self) -> str:
         return f"0x{self.product_id:016X}"
+
+    def get_sections(self, defs: list[IdSectionDef]) -> dict[str, str]:
+        """Extract section values from ``productId`` using ``defs``.
+
+        Returns a ``{name: hex_value}`` dict where each value is the uppercase
+        hex substring of the 16-char product ID at the range given by the
+        corresponding :class:`~secure_loader.core.id_sections.IdSectionDef`.
+        """
+        hex_id = f"{self.product_id:016X}"
+        return {d.name: d.extract(hex_id) for d in defs}
 
 
 POLL_INTERVAL_S: float = 0.5

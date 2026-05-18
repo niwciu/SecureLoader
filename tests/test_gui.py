@@ -474,43 +474,40 @@ class TestServerSettingsDialogSmoke:
         assert "license_id" in checked
         assert "unique_id" in checked
 
-    def test_active_segments_returns_checked_items(self, server_settings_dialog) -> None:
-        segs = server_settings_dialog._active_segments()
+    def test_active_path_segments_returns_checked_items(self, server_settings_dialog) -> None:
+        segs = server_settings_dialog._active_path_segments()
         assert isinstance(segs, list)
         assert len(segs) >= 1
 
-    def test_pid_viz_label_exists(self, server_settings_dialog) -> None:
-        assert server_settings_dialog._pid_viz_lbl is not None
+    def test_pid_viz_widget_exists(self, server_settings_dialog) -> None:
+        assert server_settings_dialog._pid_viz is not None
 
-    def test_pid_viz_contains_all_hex_placeholders(self, server_settings_dialog) -> None:
-        html = server_settings_dialog._pid_viz_lbl.text()
-        assert "AABBCCDD" in html
-        assert "3344" in html
+    def test_pid_viz_contains_section_nibble_ranges(self, server_settings_dialog) -> None:
+        defs = server_settings_dialog._pid_viz._defs
+        ranges = [(d.start, d.end - 1) for d in defs]  # inclusive end for display
+        assert (0, 7) in ranges  # custom_id
+        assert (8, 9) in ranges  # hw_id
+        assert (10, 11) in ranges  # license_id
+        assert (12, 15) in ranges  # unique_id
 
-    def test_pid_viz_active_segments_shown_in_blue(self, server_settings_dialog) -> None:
-        # Default active: license_id and unique_id → blue color
-        html = server_settings_dialog._pid_viz_lbl.text()
-        assert "#1d4ed8" in html  # active fg colour
+    def test_pid_viz_active_sections_shown_in_color(self, server_settings_dialog) -> None:
+        # Default sections are all defined → at least one section is loaded into viz
+        assert len(server_settings_dialog._pid_viz._defs) > 0
 
-    def test_pid_viz_inactive_segments_shown_in_grey(self, server_settings_dialog) -> None:
-        html = server_settings_dialog._pid_viz_lbl.text()
-        assert "#9ca3af" in html  # inactive fg colour
+    def test_pid_viz_inactive_nibbles_shown_in_grey(self, server_settings_dialog) -> None:
+        from secure_loader.gui.server_settings_dialog import _INACTIVE_COLORS
 
-    def test_pid_viz_shows_byte_descriptions(self, server_settings_dialog) -> None:
-        html = server_settings_dialog._pid_viz_lbl.text()
-        assert "B 0" in html  # custom_id: B 0-3
-        assert "B 4" in html  # hw_id
-        assert "B 5" in html  # license_id
-        assert "B 6" in html  # unique_id: B 6-7
+        assert _INACTIVE_COLORS[1] == "#9ca3af"
 
-    def test_pid_viz_updates_when_checkbox_toggled(self, server_settings_dialog) -> None:
-        from PySide6.QtCore import Qt
+    def test_pid_viz_shows_section_names(self, server_settings_dialog) -> None:
+        names = [d.name for d in server_settings_dialog._pid_viz._defs]
+        assert "hw_id" in names
+        assert "custom_id" in names
 
-        # Uncheck all segments and verify no active colour remains
-        for i in range(server_settings_dialog._seg_list.count()):
-            server_settings_dialog._seg_list.item(i).setCheckState(Qt.CheckState.Unchecked)
-        html = server_settings_dialog._pid_viz_lbl.text()
-        assert "#1d4ed8" not in html  # no active segment → no blue
+    def test_pid_viz_updates_when_section_row_deleted(self, server_settings_dialog) -> None:
+        server_settings_dialog._section_rows.clear()
+        server_settings_dialog._on_section_changed()
+        assert server_settings_dialog._pid_viz._defs == []
 
     def test_preview_label_contains_preview(self, server_settings_dialog) -> None:
         text = server_settings_dialog._preview_lbl.text()
@@ -524,7 +521,7 @@ class TestServerSettingsDialogSmoke:
     def test_preview_updates_when_checkbox_toggled(self, server_settings_dialog) -> None:
         from PySide6.QtCore import Qt
 
-        # Uncheck all → preview should not contain any field placeholder
+        # Uncheck all path segments → preview should not contain any field placeholder
         for i in range(server_settings_dialog._seg_list.count()):
             server_settings_dialog._seg_list.item(i).setCheckState(Qt.CheckState.Unchecked)
         text = server_settings_dialog._preview_lbl.text()
@@ -539,7 +536,7 @@ class TestServerSettingsDialogSmoke:
         cfg.http_path_segments = []
         dlg = ServerSettingsDialog(config=cfg)
         dlg._url_edit.setText("https://example.com")
-        dlg._update_preview()
+        dlg._update_url_preview()
         text = dlg._preview_lbl.text()
         assert "{version}.bin" in text
         assert "{license_id}" not in text
@@ -561,7 +558,7 @@ class TestServerSettingsDialogSmoke:
 
         server_settings_dialog._seg_list.setCurrentRow(1)
         before = server_settings_dialog._seg_list.item(1).data(Qt.ItemDataRole.UserRole)
-        server_settings_dialog._move_up()
+        server_settings_dialog._move_seg_up()
         after = server_settings_dialog._seg_list.item(0).data(Qt.ItemDataRole.UserRole)
         assert before == after
 
@@ -570,7 +567,7 @@ class TestServerSettingsDialogSmoke:
 
         server_settings_dialog._seg_list.setCurrentRow(0)
         before = server_settings_dialog._seg_list.item(0).data(Qt.ItemDataRole.UserRole)
-        server_settings_dialog._move_down()
+        server_settings_dialog._move_seg_down()
         after = server_settings_dialog._seg_list.item(1).data(Qt.ItemDataRole.UserRole)
         assert before == after
 
@@ -579,7 +576,7 @@ class TestServerSettingsDialogSmoke:
 
         server_settings_dialog._seg_list.setCurrentRow(0)
         before = server_settings_dialog._seg_list.item(0).data(Qt.ItemDataRole.UserRole)
-        server_settings_dialog._move_up()
+        server_settings_dialog._move_seg_up()
         after = server_settings_dialog._seg_list.item(0).data(Qt.ItemDataRole.UserRole)
         assert before == after
 
@@ -589,7 +586,7 @@ class TestServerSettingsDialogSmoke:
         last = server_settings_dialog._seg_list.count() - 1
         server_settings_dialog._seg_list.setCurrentRow(last)
         before = server_settings_dialog._seg_list.item(last).data(Qt.ItemDataRole.UserRole)
-        server_settings_dialog._move_down()
+        server_settings_dialog._move_seg_down()
         after = server_settings_dialog._seg_list.item(last).data(Qt.ItemDataRole.UserRole)
         assert before == after
 
@@ -632,7 +629,7 @@ class TestServerSettingsDialogSmoke:
         cfg = AppConfig()
         cfg.http_path_segments = ["hw_id", "license_id"]
         dlg = ServerSettingsDialog(config=cfg)
-        segs = dlg._active_segments()
+        segs = dlg._active_path_segments()
         assert segs == ["hw_id", "license_id"]
         dlg.close()
 

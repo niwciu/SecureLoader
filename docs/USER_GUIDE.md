@@ -17,6 +17,8 @@ This page covers everything an end-user needs: installation, CLI reference, GUI 
 
 A physical serial port or USB-to-serial adapter is required to communicate with a device.
 
+> **🔗 Tool compatibility:** SecureLoader and SecureBootloader are version-locked due to a wire-header change in v2.0.0 (48 → 44 bytes). See the [compatibility table](https://github.com/niwciu/SecureLoader#-tool-compatibility) before upgrading either component.
+
 ---
 
 ## 🚀 Installation
@@ -217,43 +219,53 @@ sld info --file firmware.bin --port /dev/ttyUSB0 --parity odd
 
 Download a firmware binary from the configured HTTP server and save it to disk.
 
+Section values are the named slices of the device's 64-bit Product ID as defined in
+`product_id.sections` (default: `custom_id`, `hw_id`, `license_id`, `unique_id`).
+Use `sld info --port ...` to read them from a connected device.
+
 ```bash
-# Download the latest firmware for a device
-sld fetch --license AB --unique C0FE --output firmware.bin
+# Download the latest firmware for a device (default sections)
+sld fetch --section license_id=AB --section unique_id=C0FE --output firmware.bin
 
 # Download a specific (previous) version
-sld fetch --license AB --unique C0FE --previous 0x01020300 --output prev.bin
+sld fetch --section license_id=AB --section unique_id=C0FE --previous 0x01020300 --output prev.bin
 
 # Override the server URL for a one-off download (HTTPS recommended)
-sld fetch --license AB --unique C0FE --output fw.bin --base-url https://myserver/update
+sld fetch --section license_id=AB --section unique_id=C0FE \
+    --output fw.bin --base-url https://myserver/update
 
 # Allow a plain HTTP server in a controlled environment (not for production)
-sld fetch --license AB --unique C0FE --output fw.bin --base-url http://myserver/update --allow-insecure
+sld fetch --section license_id=AB --section unique_id=C0FE \
+    --output fw.bin --base-url http://myserver/update --allow-insecure
+
+# Custom sections matching your product_id.sections config
+sld fetch --section product=AABB --section serial=C0FE0001 --output fw.bin
 ```
 
 | Option | Description |
 |--------|-------------|
-| `--license TEXT` | License ID (expected: two hex characters). Required. |
-| `--unique TEXT` | Unique device ID (expected: four hex characters). Required. |
+| `--section NAME=VALUE` | Product ID section value. Repeatable. The section names must match those in `product_id.sections`. At least one required. |
 | `--previous TEXT` | Fetch the version identified by this `appVersion` string instead of the latest. |
 | `--output FILE` | Destination file path (required). |
 | `--base-url TEXT` | Override `http.base_url` from config for this call only. |
 | `--allow-insecure` | Allow plain HTTP URLs and disabled TLS verification. Use only in controlled environments. |
 
-The license and unique IDs can be read from the device using `sld info --port ...`.
-
 #### 🌐 HTTP server requirements
 
-`fetch` expects your server to expose files at the following URL structure (default path segments):
+`fetch` expects your server to expose files at the following URL structure.
+The path between `base_url` and the filename is built from the sections listed in
+`http.path_segments` (default: `license_id,unique_id`):
 
 ```
-{base_url}/{license_id}/{unique_id}/info.txt
+{base_url}/{license_id}/{unique_id}/info.txt          # default path_segments
 {base_url}/{license_id}/{unique_id}/{version}.bin
+
+{base_url}/{product}/{serial}/info.txt                # custom sections example
+{base_url}/{product}/{serial}/{version}.bin
 ```
 
-The path segments between `base_url` and the filename are configurable. You can include any
-combination of `custom_id`, `hw_id`, `license_id`, `unique_id` in any order via
-`http.path_segments` in the config file, or through **Settings → Server settings → URL path structure** in the GUI.
+The path segments and section definitions are fully configurable.
+See `product_id.sections` and `http.path_segments` in the [Configuration Reference](#️-configuration-reference).
 
 | File | Content | Required for |
 |------|---------|--------------|
@@ -279,7 +291,7 @@ Credentials are stored in the **OS keychain** when the `[security]` extra is ins
 (`pip install -e ".[security]"`). Without it, credentials fall back to the INI config file
 with `0600` permissions on Unix. See the [Configuration Reference](#️-configuration-reference) for details.
 
-How `license_id` and `unique_id` are derived from the device's `productId`, and the full server path layout, is documented in [Firmware Format](FIRMWARE_FORMAT.md).
+How the Product ID is split into sections, and the full server path layout, is documented in [Firmware Format](FIRMWARE_FORMAT.md).
 
 ---
 
@@ -318,7 +330,7 @@ The command sequence:
 1. Opens the serial port and polls `GET_VERSION` every 500 ms until the bootloader responds.
 2. Reads device info (bootloader version, product ID, page size).
 3. Checks compatibility — product ID and protocol version must match the firmware header (unless `--force`).
-4. Sends `START` with the 48-byte wire header.
+4. Sends `START` with the 44-byte wire header (prevAppVersion stripped).
 5. Streams all `pageCount` pages, reporting progress to stdout.
 6. Reports success or failure.
 
@@ -354,6 +366,7 @@ Available keys:
 | `http.allow_insecure` | `true` / `false`. Allow plain `http://` URLs. Default `false`. |
 | `http.login` | HTTP server login (stored in plaintext, `0600` permissions on Unix). |
 | `http.password` | HTTP server password. |
+| `product_id.sections` | Comma-separated section definitions in `name:start:end` nibble format. Default: `custom_id:0:8,hw_id:8:10,license_id:10:12,unique_id:12:16`. |
 | `ui.language` | Display language: `auto`, `en`, `de`, `fr`, `es`, `it`, `pl`. |
 | `ui.instruction_url` | URL opened by **Help → Update instruction…**. Leave empty to hide the menu item. |
 
@@ -432,18 +445,21 @@ Both buttons are **fully implemented**. They are disabled at startup and become 
 
 After a successful download the binary is **loaded directly into the firmware fields** — it is ready to flash without selecting a file manually.
 
-Server connection settings are configured via **Settings → Server settings**, which opens a dialog with three sections:
+Server connection settings are configured via **Settings → Server settings**, which opens a dialog with four sections:
 
 - **Server** — the HTTPS base URL for your firmware server. An **Allow plain HTTP** checkbox
   is available for controlled lab environments where HTTPS is not available; leave it off for
   any network where credentials or firmware could be intercepted.
 - **Credentials** — enable the checkbox to activate HTTP Basic Auth, then enter login and
-  password. When the checkbox is off, requests are sent without authentication. The Product ID
-  field layout is shown as a colour-coded hex strip so you can see exactly which bytes map to
-  which fields.
-- **URL path structure** — choose which Product ID fields (`custom_id`, `hw_id`, `license_id`,
-  `unique_id`) to include in the download path and in what order. A live preview shows the
-  resulting URL template.
+  password. When the checkbox is off, requests are sent without authentication.
+- **Product ID sections** — define how the 64-bit Product ID is split into named sections at
+  nibble (half-byte) granularity. Add rows, give each a name and a nibble range (0–16). A
+  colour-coded hex strip visualises the current layout across all 16 nibbles. The default
+  split is `custom_id [0:8]`, `hw_id [8:10]`, `license_id [10:12]`, `unique_id [12:16]` and
+  matches the EncryptBIN / SecureBootloader ecosystem convention.
+- **URL path structure** — choose which defined sections to include in the download URL path
+  and in what order. Use the Up/Down buttons to reorder. A live preview shows the resulting
+  URL template.
 
 The same [HTTP server requirements](#-http-server-requirements) as for the CLI `fetch` command apply.
 
@@ -468,6 +484,9 @@ password        =
 use_credentials = false
 path_segments   = license_id,unique_id
 
+[product_id]
+sections = custom_id:0:8,hw_id:8:10,license_id:10:12,unique_id:12:16
+
 [ui]
 language = auto
 instruction_url =
@@ -486,7 +505,13 @@ firmware_1 = /home/user/projects/firmware_prev.bin
 | `use_credentials` | `true` / `false`. When `false` (default), `login` and `password` are ignored and requests are unauthenticated. Set to `true` via **Settings → Server settings → Credentials** checkbox. |
 | `login` | HTTP Basic Auth username, used only when `use_credentials = true`. |
 | `password` | HTTP Basic Auth password. Stored in OS keychain when `[security]` extra is installed; otherwise plaintext with `0600` permissions. Use `sld config set-password` to avoid shell history exposure. |
-| `path_segments` | Comma-separated list of Product ID fields used to build the download URL path. Default: `license_id,unique_id`. Available: `custom_id`, `hw_id`, `license_id`, `unique_id`. |
+| `path_segments` | Comma-separated list of section names (from `product_id.sections`) used to build the download URL path. Default: `license_id,unique_id`. |
+
+### `[product_id]` section
+
+| Key | Description |
+|-----|-------------|
+| `sections` | Comma-separated section definitions in `name:start:end` nibble format. Each entry maps a name to a half-byte range of the 16-character hex representation of `productId`. `start` is inclusive, `end` is exclusive (0–16). Names must be unique. Default: `custom_id:0:8,hw_id:8:10,license_id:10:12,unique_id:12:16`. Configure via **Settings → Server settings → Product ID sections** or: `sld config set product_id.sections name1:0:6,name2:6:16` |
 
 ### `[ui]` section
 

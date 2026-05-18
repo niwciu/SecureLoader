@@ -20,20 +20,20 @@ import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import keyring
 from platformdirs import user_config_dir
 
+from .core.id_sections import (
+    DEFAULT_ID_SECTIONS,
+    IdSectionDef,
+    parse_id_sections,
+    serialize_id_sections,
+)
 from .core.sources.http import DEFAULT_BASE_URL, DEFAULT_PATH_SEGMENTS, HttpCredentials
 
 log = logging.getLogger(__name__)
 
-try:
-    import keyring as _keyring
-
-    _KEYRING_SERVICE = "secureloader"
-    _KEYRING_AVAILABLE = True
-except ImportError:  # pragma: no cover
-    _keyring = None  # type: ignore[assignment]
-    _KEYRING_AVAILABLE = False
+_KEYRING_SERVICE = "secureloader"
 
 APP_DIR_NAME: str = "secureloader"
 APP_AUTHOR: str = "niwciu"
@@ -62,6 +62,7 @@ class AppConfig:
     http_use_credentials: bool = False
     http_allow_insecure: bool = False
     http_path_segments: list[str] = field(default_factory=lambda: list(DEFAULT_PATH_SEGMENTS))
+    id_section_defs: list[IdSectionDef] = field(default_factory=lambda: list(DEFAULT_ID_SECTIONS))
     language: str = "auto"  # "en" | "de" | "fr" | "es" | "it" | "pl" | "auto"
     update_instruction_url: str = ""  # empty = menu item hidden
     last_firmware_paths: list[str] = field(default_factory=list)
@@ -89,6 +90,7 @@ def _load_config_locked(path: Path | None) -> AppConfig:
     http = parser["http"] if parser.has_section("http") else {}
     ui = parser["ui"] if parser.has_section("ui") else {}
     recent = parser["recent"] if parser.has_section("recent") else {}
+    product_id_sec = parser["product_id"] if parser.has_section("product_id") else {}
 
     _raw_segs = http.get("path_segments", "")
     path_segments = (
@@ -101,25 +103,46 @@ def _load_config_locked(path: Path | None) -> AppConfig:
     # Backward compat: if the key is absent, infer True when a login is already stored.
     http_use_credentials = _use_creds_raw.lower() == "true" if _use_creds_raw else bool(_login)
 
+    _raw_id_sections = product_id_sec.get("sections", "")
+    try:
+        id_section_defs = parse_id_sections(_raw_id_sections)
+    except ValueError:
+        log.warning("product_id.sections is malformed — using defaults")
+        id_section_defs = list(DEFAULT_ID_SECTIONS)
+
+    http_password = _resolve_password(_login, http.get("password", ""))
+
     cfg = AppConfig(
         http_base_url=http.get("base_url", DEFAULT_BASE_URL),
         http_login=_login,
-        http_password=http.get("password", ""),
+        http_password=http_password,
         http_use_credentials=http_use_credentials,
         http_allow_insecure=http.get("allow_insecure", "false").lower() == "true",
         http_path_segments=path_segments,
+        id_section_defs=id_section_defs,
         language=ui.get("language", "auto"),
         update_instruction_url=ui.get("instruction_url", ""),
         last_firmware_paths=[recent[key] for key in sorted(recent) if key.startswith("firmware_")],
     )
-    if _KEYRING_AVAILABLE and cfg.http_login:
-        try:
-            stored = _keyring.get_password(_KEYRING_SERVICE, cfg.http_login)
-            if stored is not None:
-                cfg.http_password = stored
-        except Exception:
-            log.debug("keyring read failed — using password from config file")
     return cfg
+
+
+def _resolve_password(login: str, ini_password: str) -> str:
+    """Return the password from the keychain, migrating a plaintext INI value if needed."""
+    if not login:
+        return ""
+    try:
+        stored = keyring.get_password(_KEYRING_SERVICE, login)
+        if stored is not None:
+            return stored
+        if ini_password:
+            # One-time migration: move plaintext password from INI into the keychain.
+            keyring.set_password(_KEYRING_SERVICE, login, ini_password)
+            log.info("Migrated HTTP password from config file into the system keychain.")
+            return ini_password
+    except Exception:
+        log.warning("keyring read failed — password not loaded")
+    return ""
 
 
 def save_config(config: AppConfig, path: Path | None = None) -> None:
@@ -131,29 +154,27 @@ def _save_config_locked(config: AppConfig, path: Path | None) -> None:
     cfg_path = path or config_path()
     cfg_path.parent.mkdir(parents=True, exist_ok=True)
 
-    if _KEYRING_AVAILABLE and config.http_login:
+    if config.http_login and config.http_password:
         try:
-            _keyring.set_password(_KEYRING_SERVICE, config.http_login, config.http_password)
-            ini_password = ""
+            keyring.set_password(_KEYRING_SERVICE, config.http_login, config.http_password)
         except Exception:
-            log.warning("keyring write failed — storing HTTP password in plaintext")
-            ini_password = config.http_password
-    else:
-        if config.http_password:
-            log.warning(
-                "keyring not installed — storing HTTP password in plaintext. "
-                "Install the 'keyring' package for secure storage."
+            log.error(
+                "keyring write failed — password NOT saved to disk. "
+                "Ensure a keyring backend is available "
+                "(on Linux, install 'secretstorage' or 'keyrings.alt')."
             )
-        ini_password = config.http_password
 
     parser = configparser.ConfigParser()
     parser["http"] = {
         "base_url": config.http_base_url,
         "login": config.http_login,
-        "password": ini_password,
+        "password": "",  # never written to disk — stored in system keychain only
         "use_credentials": str(config.http_use_credentials).lower(),
         "allow_insecure": str(config.http_allow_insecure).lower(),
         "path_segments": ",".join(config.http_path_segments),
+    }
+    parser["product_id"] = {
+        "sections": serialize_id_sections(config.id_section_defs),
     }
     parser["ui"] = {
         "language": config.language,

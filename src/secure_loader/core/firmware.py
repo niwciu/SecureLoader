@@ -19,9 +19,11 @@ Layout of an encrypted .bin file (little-endian):
 
 The 64-bit productId is reconstructed as ``(MSB << 32) | LSB``.
 
-The wire header sent to the device during a firmware update is identical to
-the full 48-byte file header. ``prevAppVersion`` is transmitted and the
-bootloader struct now includes it (bootloader v1.2+).
+The wire header sent to the device during ``CMD_START`` is **44 bytes** —
+``prevAppVersion`` is read from the file but **not** forwarded to the
+bootloader (compatible with bootloader v1.1+).  The bootloader ``header_t``
+struct no longer contains ``prevAppVersion``; all fields after ``appVersion``
+shift down by 4 bytes compared to the file layout.
 """
 
 from __future__ import annotations
@@ -32,13 +34,15 @@ import zlib
 from dataclasses import dataclass
 from pathlib import Path
 
+from .id_sections import IdSectionDef
+
 log = logging.getLogger(__name__)
 
 HEADER_SIZE: int = 48
 """Total size of the firmware header in bytes."""
 
-DEVICE_HEADER_SIZE: int = HEADER_SIZE
-"""Size of the header sent to the device (identical to the file header, 48 bytes)."""
+DEVICE_HEADER_SIZE: int = 44
+"""Size of the header sent to the device over UART (44 bytes — prevAppVersion stripped)."""
 
 IV_SIZE: int = 16
 """Size of the initialization vector in bytes."""
@@ -113,6 +117,16 @@ class FirmwareHeader:
 
     def format_prev_app_version(self) -> str:
         return f"0x{self.prev_app_version:08X}"
+
+    def get_sections(self, defs: list[IdSectionDef]) -> dict[str, str]:
+        """Extract section values from ``productId`` using ``defs``.
+
+        Returns a ``{name: hex_value}`` dict where each value is the uppercase
+        hex substring of the 16-char product ID at the range given by the
+        corresponding :class:`~secure_loader.core.id_sections.IdSectionDef`.
+        """
+        hex_id = f"{self.product_id:016X}"
+        return {d.name: d.extract(hex_id) for d in defs}
 
 
 def parse_header(data: bytes | bytearray | memoryview) -> FirmwareHeader:
@@ -213,16 +227,17 @@ def load_firmware(path: str | Path) -> tuple[FirmwareHeader, bytes]:
 
 
 def build_device_header(raw: bytes | bytearray) -> bytes:
-    """Return the 48-byte wire header transmitted to the device during CMD_START.
+    """Return the 44-byte wire header transmitted to the device during CMD_START.
 
-    The wire header is identical to the file header — all fields including
-    ``prevAppVersion`` are transmitted (bootloader struct is 48 bytes).
+    ``prevAppVersion`` (file bytes [16:20]) is read by the host but **not**
+    forwarded.  The returned buffer matches the bootloader v1.1+ ``header_t``
+    layout exactly: file bytes [0:16] followed by file bytes [20:48].
     """
     if len(raw) < HEADER_SIZE:
         raise FirmwareFormatError(
             f"firmware too short: need at least {HEADER_SIZE} bytes, got {len(raw)}"
         )
-    return bytes(raw[0:HEADER_SIZE])
+    return bytes(raw[0:16]) + bytes(raw[20:HEADER_SIZE])
 
 
 def split_pages(payload: bytes, page_size: int) -> list[bytes]:
