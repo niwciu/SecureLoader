@@ -10,6 +10,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from secure_loader.config import AppConfig, load_config, save_config
+from secure_loader.core.id_sections import DEFAULT_ID_SECTIONS, IdSectionDef
 
 
 @pytest.fixture
@@ -77,6 +78,27 @@ class TestRoundTrip:
         assert cfg.http_login == ""
         assert cfg.language == "auto"
 
+    def test_id_section_defs_round_trip(self, tmp_cfg: Path) -> None:
+        custom_defs = [
+            IdSectionDef(name="product", start=0, end=6),
+            IdSectionDef(name="hw", start=6, end=8),
+            IdSectionDef(name="serial", start=8, end=16),
+        ]
+        cfg = AppConfig(id_section_defs=custom_defs)
+        save_config(cfg, tmp_cfg)
+        loaded = load_config(tmp_cfg)
+        assert loaded.id_section_defs == custom_defs
+
+    def test_id_section_defs_default_when_absent(self, tmp_cfg: Path) -> None:
+        tmp_cfg.write_text("[http]\nbase_url = https://example.com\n", encoding="utf-8")
+        cfg = load_config(tmp_cfg)
+        assert cfg.id_section_defs == list(DEFAULT_ID_SECTIONS)
+
+    def test_id_section_defs_malformed_falls_back_to_defaults(self, tmp_cfg: Path) -> None:
+        tmp_cfg.write_text("[product_id]\nsections = INVALID:X:Y\n", encoding="utf-8")
+        cfg = load_config(tmp_cfg)
+        assert cfg.id_section_defs == list(DEFAULT_ID_SECTIONS)
+
 
 class TestCredentials:
     def test_credentials_none_when_both_empty(self) -> None:
@@ -140,8 +162,7 @@ class TestKeyringStorage:
     ) -> None:
         mock_kr = MagicMock()
         mock_kr.get_password.return_value = None
-        monkeypatch.setattr("secure_loader.config._KEYRING_AVAILABLE", True)
-        monkeypatch.setattr("secure_loader.config._keyring", mock_kr)
+        monkeypatch.setattr("secure_loader.config.keyring", mock_kr)
 
         cfg = AppConfig(http_login="user", http_password="secret")
         save_config(cfg, tmp_cfg)
@@ -155,14 +176,29 @@ class TestKeyringStorage:
     ) -> None:
         mock_kr = MagicMock()
         mock_kr.get_password.return_value = "from_keyring"
-        monkeypatch.setattr("secure_loader.config._KEYRING_AVAILABLE", True)
-        monkeypatch.setattr("secure_loader.config._keyring", mock_kr)
+        monkeypatch.setattr("secure_loader.config.keyring", mock_kr)
 
         cfg = AppConfig(http_login="user", http_password="")
         save_config(cfg, tmp_cfg)
         loaded = load_config(tmp_cfg)
 
         assert loaded.http_password == "from_keyring"
+
+    def test_plaintext_password_migrated_to_keyring_on_load(
+        self, tmp_cfg: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        mock_kr = MagicMock()
+        mock_kr.get_password.return_value = None  # nothing in keyring yet
+        monkeypatch.setattr("secure_loader.config.keyring", mock_kr)
+
+        # Write a legacy config that still has the password in plaintext.
+        tmp_cfg.write_text(
+            "[http]\nlogin = user\npassword = legacy_secret\n", encoding="utf-8"
+        )
+        loaded = load_config(tmp_cfg)
+
+        assert loaded.http_password == "legacy_secret"
+        mock_kr.set_password.assert_called_once_with("secureloader", "user", "legacy_secret")
 
 
 class TestFilePermissions:

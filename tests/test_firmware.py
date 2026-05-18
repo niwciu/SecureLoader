@@ -68,19 +68,26 @@ class TestParseHeader:
 
 
 class TestBuildDeviceHeader:
-    def test_wire_header_is_full_48_byte_file_header(self, sample_firmware: bytes) -> None:
+    def test_wire_header_is_44_bytes(self, sample_firmware: bytes) -> None:
         wire = build_device_header(sample_firmware)
-        assert len(wire) == 48
+        assert len(wire) == 44
         assert len(wire) == DEVICE_HEADER_SIZE
-        # Wire header is identical to the first HEADER_SIZE bytes of the file.
-        assert wire == sample_firmware[:HEADER_SIZE]
 
-    def test_prev_app_version_present_at_offset_16(self, sample_firmware: bytes) -> None:
+    def test_wire_header_matches_file_bytes_0_to_16_and_20_to_48(
+        self, sample_firmware: bytes
+    ) -> None:
         wire = build_device_header(sample_firmware)
-        # prevAppVersion is at bytes [16:20] in both the file and the wire header.
-        assert wire[16:20] == sample_firmware[16:20]
-        # Confirm the value is non-zero (matches the fixture's 0x01020300).
-        assert wire[16:20] != b"\x00\x00\x00\x00"
+        # Bytes [0:16]: protocolVersion + productId MSB+LSB + appVersion
+        assert wire[0:16] == sample_firmware[0:16]
+        # Bytes [16:44] of the wire map to file bytes [20:48]: pageCount onwards
+        assert wire[16:44] == sample_firmware[20:48]
+
+    def test_prev_app_version_absent_from_wire_header(self, sample_firmware: bytes) -> None:
+        wire = build_device_header(sample_firmware)
+        # prevAppVersion occupies file bytes [16:20] — must NOT appear in wire header.
+        # At wire offset 16 we expect pageCount (file[20:24]), not prevAppVersion (file[16:20]).
+        assert wire[16:20] == sample_firmware[20:24]  # pageCount, not prevAppVersion
+        assert wire[16:20] != sample_firmware[16:20]  # differs from prevAppVersion bytes
 
     def test_rejects_short_blobs(self) -> None:
         with pytest.raises(FirmwareFormatError):

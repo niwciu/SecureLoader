@@ -122,7 +122,12 @@ class TestFetchWarning:
         with patch("secure_loader.cli.main.load_config", return_value=cfg):
             result = runner.invoke(
                 cli,
-                ["fetch", "--license", "CC", "--unique", "3344", "--output", "/dev/null"],
+                [
+                    "fetch",
+                    "--section", "license_id=CC",
+                    "--section", "unique_id=3344",
+                    "--output", "/dev/null",
+                ],
                 catch_exceptions=True,
             )
         assert result.exit_code != 0
@@ -143,12 +148,9 @@ class TestFetchWarning:
                 cli,
                 [
                     "fetch",
-                    "--license",
-                    "CC",
-                    "--unique",
-                    "3344",
-                    "--output",
-                    "/dev/null",
+                    "--section", "license_id=CC",
+                    "--section", "unique_id=3344",
+                    "--output", "/dev/null",
                     "--allow-insecure",
                 ],
                 catch_exceptions=True,
@@ -167,7 +169,12 @@ class TestFetchWarning:
             mock_src_cls.return_value = mock_src
             result = runner.invoke(
                 cli,
-                ["fetch", "--license", "CC", "--unique", "3344", "--output", "/dev/null"],
+                [
+                    "fetch",
+                    "--section", "license_id=CC",
+                    "--section", "unique_id=3344",
+                    "--output", "/dev/null",
+                ],
                 catch_exceptions=True,
             )
         combined = (result.output or "") + (result.stderr if hasattr(result, "stderr") else "")

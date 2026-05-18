@@ -9,7 +9,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "secureloader"
-version = "1.2.0"
+version = "2.0.0"
 description = "Encrypted firmware upload tool for embedded devices over serial"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -38,11 +38,11 @@ dependencies = [
     "requests>=2.31",
     "click>=8.1",
     "platformdirs>=4.0",
+    "keyring>=24.0",
 ]
 
 [project.optional-dependencies]
 gui = ["PySide6>=6.6"]
-security = ["keyring>=24.0"]
 dev = [
     "pytest>=7.4",
     "pytest-cov>=4.1",
@@ -55,7 +55,6 @@ dev = [
     "types-requests>=2.31",
     "types-pyserial>=3.5",
     "pip-tools>=7.0",
-    "keyring>=24.0",
     "bandit[toml]>=1.7",
     "pip-audit>=2.7",
 ]

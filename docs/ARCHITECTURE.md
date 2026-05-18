@@ -68,19 +68,32 @@ graph TB
 
 Five modules encapsulating all business logic.
 
+### `core/id_sections.py`
+
+**Responsibility:** defining how the 64-bit `productId` is split into named sections.
+
+Key objects:
+- `IdSectionDef(name, start, end)` — an immutable nibble-range slice of the 16-character hex
+  representation of `productId`. `start` and `end` are 0-based nibble positions (0–16).
+  `extract(hex_id)` returns the substring `hex_id[start:end]`.
+- `DEFAULT_ID_SECTIONS` — the default split matching the ecosystem convention:
+  `custom_id [0:8]`, `hw_id [8:10]`, `license_id [10:12]`, `unique_id [12:16]`.
+- `serialize_id_sections(defs) -> str` — serialises to `name:start:end,…` for INI storage.
+- `parse_id_sections(s) -> list[IdSectionDef]` — parses the above format; returns defaults if `s` is blank.
+
 ### `core/firmware.py`
 
 **Responsibility:** parsing the `.bin` binary format.
 
 Key objects:
 - `HEADER_SIZE = 48` — total header size on disk.
-- `DEVICE_HEADER_SIZE = 48` — header size sent to the device (identical to the file header).
-- `FirmwareHeader` — dataclass with fields and helpers (`format_product_id`,
-  `license_id`, `unique_id`, `payload_size`).
+- `DEVICE_HEADER_SIZE = 44` — header size sent to the device (prevAppVersion stripped).
+- `FirmwareHeader` — frozen dataclass with fields and helpers (`format_product_id`,
+  `format_app_version`, `payload_size`, `get_sections(defs)`).
 - `parse_header(bytes) -> FirmwareHeader` — parses the first 48 bytes.
 - `load_firmware(path) -> (FirmwareHeader, bytes)` — parses from file.
-- `build_device_header(bytes) -> bytes` — returns the 48-byte wire header
-  (identical to the file header).
+- `build_device_header(bytes) -> bytes` — returns the 44-byte wire header
+  (file bytes [0:16] + [20:48]; prevAppVersion at [16:20] is omitted).
 - `split_pages(payload, page_size) -> list[bytes]` — splits payload into
   equal pages; an incomplete final page is dropped (matching C++ behaviour).
 
@@ -143,8 +156,16 @@ class FirmwareSource(ABC):
     def fetch_previous(self, identifier, progress=None) -> bytes: ...
 ```
 
-`FirmwareIdentifier` carries `license_id`, `unique_id`, optionally
-`app_version` (used by `fetch_previous`).
+`FirmwareIdentifier` is a dict-backed immutable class that carries named product-ID
+sections extracted from the device's `productId` via `get_sections(config.id_section_defs)`.
+Sections are accessed as attributes (`identifier.license_id`) or via `identifier.get("name", "")`.
+`app_version` is a reserved attribute for rollback fetches (holds `prevAppVersion`).
+
+```python
+# Building an identifier from a connected device:
+sections = device_info.get_sections(config.id_section_defs)
+identifier = FirmwareIdentifier(sections, app_version=prev_version)
+```
 
 `FirmwareSource` is used by the network-fetch paths only: the CLI `fetch` command
 and the GUI _Fetch from server_ / _Get Previous Firmware_ buttons both use
@@ -223,7 +244,8 @@ Files: [gui/](https://github.com/niwciu/SecureLoader/tree/main/src/secure_loader
 gui/
 ├── app.py                    — QApplication bootstrap, icon, language
 ├── main_window.py            — QMainWindow reproducing mainwindow.ui 1:1
-├── server_settings_dialog.py — QDialog for server URL, credentials, and URL path structure
+├── server_settings_dialog.py — QDialog for server URL, credentials, product-ID section editor,
+│                               and URL path structure
 ├── login_dialog.py           — legacy QDialog (credentials only; kept for tests)
 └── workers.py                — ProtocolWorker, DownloadWorker (QThread wrappers)
 ```
@@ -313,6 +335,9 @@ password =
 use_credentials = false
 path_segments = license_id,unique_id
 
+[product_id]
+sections = custom_id:0:8,hw_id:8:10,license_id:10:12,unique_id:12:16
+
 [ui]
 language = auto
 instruction_url = 
@@ -333,10 +358,15 @@ Fields:
   is installed; otherwise in plaintext with `chmod 0600` on Unix.
   _Backward compat_: if `use_credentials` is absent in an existing file, it is inferred as
   `true` when `login` is non-empty, so pre-existing credentials continue to work.
-- `http.path_segments` — comma-separated list of `FirmwareIdentifier` field names that form
-  the URL path between `base_url` and the filename. Defaults to `license_id,unique_id`.
-  Available names: `custom_id`, `hw_id`, `license_id`, `unique_id`.
+- `http.path_segments` — comma-separated list of section names (defined in `product_id.sections`)
+  that form the URL path between `base_url` and the filename. Defaults to `license_id,unique_id`.
   Configured via **Settings → Server settings → URL path structure**.
+- `product_id.sections` — comma-separated section definitions in `name:start:end` format, where
+  `start` and `end` are nibble (half-byte) positions within the 16-character hex representation
+  of the 64-bit `productId`. Defaults to the four-section ecosystem convention
+  (`custom_id:0:8,hw_id:8:10,license_id:10:12,unique_id:12:16`). Configured via
+  **Settings → Server settings → Product ID sections**. Can also be set with:
+  `sld config set product_id.sections name1:0:6,name2:6:16`
 - `ui.language` — `"auto" | "en" | "de" | "fr" | "es" | "it" | "pl"`.
 - `ui.instruction_url` — optional URL opened by the _Update instruction…_ GUI
   menu item. When empty, the menu item is hidden.
@@ -414,35 +444,36 @@ offset  size  field
   48     …    encrypted pages
 ```
 
-Wire header = bytes `[0:48]` = 48 B (sent with the `START` command, identical to the file header).
+Wire header = bytes `[0:16]` + `[20:48]` = 44 B (sent with the `START` command; prevAppVersion at `[16:20]` is omitted).
 
-### Product ID Convention
+### Product ID Sections
 
-The 64-bit `productId` is treated as an **opaque value** by SecureLoader — it
-is compared as a whole between the firmware file and the device response.
-No partial matching is performed.
+The 64-bit `productId` is treated as an **opaque value** for compatibility checks
+(compared as a whole between the firmware file and the device response). For HTTP
+firmware routing, it is split into named sections at nibble (half-byte) granularity.
 
-By convention, the ecosystem tools (EncryptBIN, SecureBootloader) lay out the
-8 bytes as follows:
+The default split matches the ecosystem convention (EncryptBIN / SecureBootloader):
 
 ```
 Hex digit:  0  1  2  3  4  5  6  7    8  9 10 11 12 13 14 15
 Byte:       ╔══════════════════════╗  ╔══╗ ╔═══╗  ╔════════╗
-            ║   custom  (4 B)      ║  ║hw║ ║lic║  ║unique  ║
+            ║   custom_id  (4 B)   ║  ║hw║ ║lic║  ║unique  ║
             ╚══════════════════════╝  ╚══╝ ╚═══╝  ╚════════╝
-             free for product use     hw_id lic   unique_id
+             nibbles [0:8]            [8:10][10:12] [12:16]
 ```
 
-| Slice | Chars | Bytes | Name | Used by SecureLoader |
-|-------|-------|-------|------|----------------------|
-| `[0:8]` | 0–7 | 0–3 | custom | no (opaque) |
-| `[8:10]` | 8–9 | 4 | `hw_id` | no (opaque) |
-| `[10:12]` | 10–11 | 5 | `license_id` | HTTP fetch routing |
-| `[12:16]` | 12–15 | 6–7 | `unique_id` | HTTP fetch routing |
+| Section name | Nibble range | Bytes | Default purpose |
+|--------------|-------------|-------|-----------------|
+| `custom_id`  | `[0:8]`  | 0–3 | Product-specific, free for use |
+| `hw_id`      | `[8:10]` | 4   | Hardware revision |
+| `license_id` | `[10:12]`| 5   | License tier |
+| `unique_id`  | `[12:16]`| 6–7 | Device serial number |
 
-`license_id` and `unique_id` are extracted only when routing a firmware
-download request to the HTTP server (`FirmwareIdentifier`). For all other
-operations (compatibility check, device matching) the full 64-bit value is used.
+This layout is the default — it can be changed at any time in
+**Settings → Server settings → Product ID sections** or via
+`sld config set product_id.sections <defs>`. Any names and nibble
+boundaries (0–16) are accepted, as long as names are unique and `start < end`.
+Only the sections listed in `http.path_segments` appear in download URLs.
 
 ### Serial Commands (1 byte each)
 
@@ -458,7 +489,7 @@ operations (compatibility check, device matching) the full 64-bit value is used.
 After ACK for `GET_VERSION` the device sends 16 bytes of device info
 (`u32 bootloaderVersion`, `u64 productId`, `u32 flashPageSize`).
 
-The host sends `START` (`0x02`) immediately followed by the 48 B wire header
+The host sends `START` (`0x02`) immediately followed by the 44 B wire header
 as a single transmission. The device responds ACK/NAK. Then for each page the
 host sends `NEXT_PAGE` (`0x03`) + `flashPageSize` bytes, and the device ACKs.
 
@@ -479,9 +510,9 @@ Files: [tests/](https://github.com/niwciu/SecureLoader/tree/main/tests/).
 - `test_protocol.py` — state machine, tested by injecting bytes into
   `_handle_byte()` (no pyserial mocking).
 - `test_updater.py` — `check_device_matches_firmware`.
-- `test_config.py` — config load/save and keyring integration.
+- `test_config.py` — config load/save, `id_section_defs` round-trip, and keyring integration.
 - `test_http_source.py` — `HttpFirmwareSource`: URL encoding, TLS enforcement,
-  auth passthrough, 100 MB download cap, version string validation.
+  auth passthrough, 100 MB download cap, version string validation, configurable path segments.
 - `test_local_source.py` — `LocalFirmwareSource`.
 - `test_github_source.py` — `GithubReleasesFirmwareSource` with mocked GitHub API.
 - `test_cli.py` — CLI commands: `config set/show/path`, `fetch` (HTTP rejection,

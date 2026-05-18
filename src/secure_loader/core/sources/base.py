@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import Callable
-from dataclasses import dataclass
 
 ProgressCallback = Callable[[int, int], None]
 """Progress callback receiving ``(bytes_received, bytes_total)``."""
@@ -14,25 +13,86 @@ class FirmwareSourceError(RuntimeError):
     """Raised when a firmware source cannot provide the requested blob."""
 
 
-@dataclass(frozen=True, slots=True)
 class FirmwareIdentifier:
     """Keys identifying which firmware image to fetch.
 
-    Consumers derive these from the device's ``productId`` response or from
-    a parsed firmware header. Not every field is meaningful for every source;
-    providers document which attributes they require.
+    Section values are derived from the device's 64-bit ``productId`` by
+    applying the user-configured :class:`~secure_loader.core.id_sections.IdSectionDef`
+    list (see :meth:`~secure_loader.core.firmware.FirmwareHeader.get_sections` and
+    :meth:`~secure_loader.core.protocol.DeviceInfo.get_sections`).
 
-    The four ``*_id`` fields mirror the product ID byte convention:
-    ``custom_id`` (bytes 0-3), ``hw_id`` (byte 4), ``license_id`` (byte 5),
-    ``unique_id`` (bytes 6-7).  Which fields are actually used to build a
-    download URL is determined by :attr:`HttpFirmwareSource.path_segments`.
+    Section values are accessed by name as regular attributes using
+    ``__getattr__``, e.g. ``identifier.license_id``.  This keeps callers
+    decoupled from the storage representation and allows any configured section
+    name to work transparently with :class:`~secure_loader.core.sources.http.HttpFirmwareSource`.
+
+    The ``app_version`` attribute is reserved for the rollback-fetch use case
+    (``prevAppVersion`` from the firmware header) and is not a product-ID section.
+
+    Construction::
+
+        sections = device_info.get_sections(config.id_section_defs)
+        identifier = FirmwareIdentifier(sections, app_version="0.9.1")
     """
 
-    license_id: str
-    unique_id: str
-    custom_id: str = ""
-    hw_id: str = ""
-    app_version: str | None = None
+    def __init__(self, sections: dict[str, str], app_version: str | None = None) -> None:
+        object.__setattr__(self, "_sections", dict(sections))
+        object.__setattr__(self, "app_version", app_version)
+
+    # -------------------------------------------------------------- attribute access
+
+    def __getattr__(self, name: str) -> str:
+        """Return the value of section ``name``.
+
+        Only called for names not found in ``__dict__`` (i.e. section names,
+        not ``_sections`` or ``app_version``).
+        """
+        try:
+            return object.__getattribute__(self, "_sections")[name]
+        except KeyError:
+            available = list(object.__getattribute__(self, "_sections"))
+            raise AttributeError(
+                f"{type(self).__name__} has no section {name!r}. "
+                f"Available sections: {available}"
+            ) from None
+
+    def __setattr__(self, name: str, value: object) -> None:
+        raise AttributeError("FirmwareIdentifier is immutable")
+
+    # -------------------------------------------------------------- helpers
+
+    def get(self, name: str, default: str = "") -> str:
+        """Return section value or ``default`` if the section is not present."""
+        return object.__getattribute__(self, "_sections").get(name, default)
+
+    @property
+    def section_names(self) -> list[str]:
+        """Names of all sections carried by this identifier."""
+        return list(object.__getattribute__(self, "_sections"))
+
+    # -------------------------------------------------------------- dunder protocol
+
+    def __repr__(self) -> str:
+        sections = object.__getattribute__(self, "_sections")
+        app_version = object.__getattribute__(self, "app_version")
+        return (
+            f"FirmwareIdentifier(sections={sections!r}, app_version={app_version!r})"
+        )
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, FirmwareIdentifier):
+            return NotImplemented
+        return (
+            object.__getattribute__(self, "_sections")
+            == object.__getattribute__(other, "_sections")
+            and object.__getattribute__(self, "app_version")
+            == object.__getattribute__(other, "app_version")
+        )
+
+    def __hash__(self) -> int:
+        sections = object.__getattribute__(self, "_sections")
+        app_version = object.__getattribute__(self, "app_version")
+        return hash((tuple(sorted(sections.items())), app_version))
 
 
 class FirmwareSource(ABC):

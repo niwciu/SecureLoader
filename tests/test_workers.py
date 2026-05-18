@@ -135,7 +135,7 @@ class TestDownloadWorker:
         from secure_loader.gui.workers import DownloadWorker
 
         source = MagicMock()
-        ident = FirmwareIdentifier(license_id="AA", unique_id="1234")
+        ident = FirmwareIdentifier({"license_id": "AA", "unique_id": "1234"})
         worker = DownloadWorker(source, ident, previous=True)
 
         assert worker._source is source
@@ -149,7 +149,7 @@ class TestDownloadWorker:
         fw = _make_firmware()
         source = MagicMock()
         source.fetch_latest.return_value = fw
-        ident = FirmwareIdentifier(license_id="AA", unique_id="1234")
+        ident = FirmwareIdentifier({"license_id": "AA", "unique_id": "1234"})
         worker = DownloadWorker(source, ident, previous=False)
 
         results: list[tuple] = []
@@ -167,7 +167,7 @@ class TestDownloadWorker:
 
         source = MagicMock()
         source.fetch_previous.return_value = _make_firmware()
-        ident = FirmwareIdentifier(license_id="AA", unique_id="1234")
+        ident = FirmwareIdentifier({"license_id": "AA", "unique_id": "1234"})
         worker = DownloadWorker(source, ident, previous=True)
 
         worker.run()
@@ -181,7 +181,7 @@ class TestDownloadWorker:
 
         source = MagicMock()
         source.fetch_latest.side_effect = FirmwareSourceError("server down")
-        ident = FirmwareIdentifier(license_id="AA", unique_id="1234")
+        ident = FirmwareIdentifier({"license_id": "AA", "unique_id": "1234"})
         worker = DownloadWorker(source, ident)
 
         errors: list[str] = []
@@ -196,7 +196,7 @@ class TestDownloadWorker:
 
         source = MagicMock()
         source.fetch_latest.side_effect = RuntimeError("unexpected crash")
-        ident = FirmwareIdentifier(license_id="AA", unique_id="1234")
+        ident = FirmwareIdentifier({"license_id": "AA", "unique_id": "1234"})
         worker = DownloadWorker(source, ident)
 
         errors: list[str] = []
@@ -211,7 +211,7 @@ class TestDownloadWorker:
 
         source = MagicMock()
         source.fetch_latest.return_value = b"\x00" * 10
-        ident = FirmwareIdentifier(license_id="AA", unique_id="1234")
+        ident = FirmwareIdentifier({"license_id": "AA", "unique_id": "1234"})
         worker = DownloadWorker(source, ident)
 
         results: list = []
@@ -234,7 +234,7 @@ class TestDownloadWorker:
 
         source = MagicMock()
         source.fetch_latest.side_effect = fetch_with_progress
-        ident = FirmwareIdentifier(license_id="AA", unique_id="1234")
+        ident = FirmwareIdentifier({"license_id": "AA", "unique_id": "1234"})
         worker = DownloadWorker(source, ident)
 
         progress_calls: list[tuple] = []

@@ -739,15 +739,14 @@ class MainWindow(QMainWindow):
                 return
             prev_version = self._firmware_header.format_prev_app_version()
 
+        sections = self._device_info.get_sections(self._config.id_section_defs)
         log.info(
-            "_start_fetch: base_url=%r allow_insecure=%s path_segments=%s identifier: "
-            "hw=%s lic=%s uniq=%s prev_version=%s",
+            "_start_fetch: base_url=%r allow_insecure=%s path_segments=%s "
+            "sections=%s prev_version=%s",
             self._config.http_base_url,
             self._config.http_allow_insecure,
             self._config.http_path_segments,
-            self._device_info.hw_id,
-            self._device_info.license_id,
-            self._device_info.unique_id,
+            sections,
             prev_version,
         )
         try:
@@ -758,13 +757,7 @@ class MainWindow(QMainWindow):
                 path_segments=self._config.http_path_segments,
             )
             log.debug("_start_fetch: HttpFirmwareSource created")
-            identifier = FirmwareIdentifier(
-                custom_id=self._device_info.custom_id,
-                hw_id=self._device_info.hw_id,
-                license_id=self._device_info.license_id,
-                unique_id=self._device_info.unique_id,
-                app_version=prev_version,
-            )
+            identifier = FirmwareIdentifier(sections, app_version=prev_version)
             log.debug("_start_fetch: FirmwareIdentifier created")
             self.get_firmware_button.setEnabled(False)
             self.get_prev_firmware_button.setEnabled(False)

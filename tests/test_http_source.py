@@ -28,7 +28,7 @@ def _make_response(text: str | None = None, content: bytes = b"", status: int = 
 
 @pytest.fixture
 def identifier() -> FirmwareIdentifier:
-    return FirmwareIdentifier(license_id="CC", unique_id="3344")
+    return FirmwareIdentifier({"license_id": "CC", "unique_id": "3344"})
 
 
 @pytest.fixture
@@ -160,7 +160,7 @@ class TestFetchLatest:
         assert calls[-1][0] == len(payload)
 
     def test_url_encodes_special_characters(self, source: HttpFirmwareSource) -> None:
-        ident = FirmwareIdentifier(license_id="A B", unique_id="C/D")
+        ident = FirmwareIdentifier({"license_id": "A B", "unique_id": "C/D"})
         source._session = MagicMock()
         source._session.get.side_effect = requests.ConnectionError()
         with pytest.raises(FirmwareSourceError):
@@ -175,7 +175,7 @@ class TestFetchLatest:
 class TestFetchPrevious:
     def test_fetches_named_version(self, source: HttpFirmwareSource) -> None:
         payload = b"\x01\x02\x03"
-        ident = FirmwareIdentifier(license_id="AA", unique_id="BBBB", app_version="0.9.1")
+        ident = FirmwareIdentifier({"license_id": "AA", "unique_id": "BBBB"}, app_version="0.9.1")
         bin_resp = _make_response(content=payload)
         source._session = MagicMock()
         source._session.get.return_value = bin_resp
@@ -186,7 +186,7 @@ class TestFetchPrevious:
         assert "0.9.1.bin" in url
 
     def test_raises_when_app_version_missing(self, source: HttpFirmwareSource) -> None:
-        ident = FirmwareIdentifier(license_id="AA", unique_id="BBBB")
+        ident = FirmwareIdentifier({"license_id": "AA", "unique_id": "BBBB"})
         with pytest.raises(FirmwareSourceError, match="app_version"):
             source.fetch_previous(ident)
 
@@ -290,7 +290,7 @@ class TestAuth:
 class TestPathSegments:
     def test_default_segments_produce_license_unique_path(self) -> None:
         src = HttpFirmwareSource(base_url="https://fw.example.com")
-        ident = FirmwareIdentifier(license_id="AB", unique_id="1234")
+        ident = FirmwareIdentifier({"license_id": "AB", "unique_id": "1234"})
         url = src._url(ident, "info.txt")
         assert url == "https://fw.example.com/AB/1234/info.txt"
 
@@ -299,7 +299,7 @@ class TestPathSegments:
             base_url="https://fw.example.com",
             path_segments=["hw_id", "license_id", "unique_id"],
         )
-        ident = FirmwareIdentifier(license_id="AB", unique_id="1234", hw_id="FF")
+        ident = FirmwareIdentifier({"license_id": "AB", "unique_id": "1234", "hw_id": "FF"})
         url = src._url(ident, "info.txt")
         assert url == "https://fw.example.com/FF/AB/1234/info.txt"
 
@@ -308,18 +308,18 @@ class TestPathSegments:
             base_url="https://fw.example.com",
             path_segments=["hw_id", "unique_id"],
         )
-        ident = FirmwareIdentifier(license_id="AB", unique_id="1234", hw_id="FF")
+        ident = FirmwareIdentifier({"license_id": "AB", "unique_id": "1234", "hw_id": "FF"})
         url = src._url(ident, "fw.bin")
         assert "AB" not in url
         assert url == "https://fw.example.com/FF/1234/fw.bin"
 
     def test_empty_segment_value_skipped(self) -> None:
-        # hw_id not set on identifier → omitted from path
+        # hw_id not in identifier sections → omitted from path
         src = HttpFirmwareSource(
             base_url="https://fw.example.com",
             path_segments=["hw_id", "unique_id"],
         )
-        ident = FirmwareIdentifier(license_id="AB", unique_id="1234")
+        ident = FirmwareIdentifier({"license_id": "AB", "unique_id": "1234"})
         url = src._url(ident, "info.txt")
         assert url == "https://fw.example.com/1234/info.txt"
 
@@ -328,6 +328,6 @@ class TestPathSegments:
             base_url="https://fw.example.com",
             path_segments=[],
         )
-        ident = FirmwareIdentifier(license_id="AB", unique_id="1234")
+        ident = FirmwareIdentifier({"license_id": "AB", "unique_id": "1234"})
         url = src._url(ident, "fw.bin")
         assert url == "https://fw.example.com/fw.bin"
