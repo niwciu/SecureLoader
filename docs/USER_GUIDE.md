@@ -17,6 +17,8 @@ This page covers everything an end-user needs: installation, CLI reference, GUI 
 
 A physical serial port or USB-to-serial adapter is required to communicate with a device.
 
+> **🔗 Tool compatibility:** SecureLoader and SecureBootloader are version-locked due to a wire-header change in v2.0.0 (48 → 44 bytes). See the [compatibility table](https://github.com/niwciu/SecureLoader#-tool-compatibility) before upgrading either component.
+
 ---
 
 ## 🚀 Installation

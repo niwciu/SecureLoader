@@ -50,6 +50,22 @@ Related repositories: [SecureBootloader](https://github.com/niwciu/SECURE_BOOTLO
 
 ---
 
+## 🔗 Tool Compatibility
+
+The **SecureBootloader ↔ SecureLoader** pairing is version-locked — a protocol change in SecureLoader v2.0.0 reduced the UART wire header from 48 → 44 bytes:
+
+| SecureLoader | SecureBootloader | Compatible |
+|:-------------|:----------------|:----------:|
+| < v2.0.0 | v1.0.0 | ✅ |
+| ≥ v2.0.0 | ≥ v1.1 | ✅ |
+| ≥ v2.0.0 | v1.0.0 | ❌ device stalls on `CMD_START` |
+| < v2.0.0 | ≥ v1.1 | ❌ header size mismatch |
+
+> ⚠️ Always match the SecureLoader version to the SecureBootloader version deployed on your device.
+> Flash the updated bootloader (≥ v1.1) to the target before deploying SecureLoader v2.0.0 or later.
+
+---
+
 ## 📦 Installation
 
 Python 3.10+ required.
